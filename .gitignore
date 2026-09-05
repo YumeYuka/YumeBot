@@ -1,0 +1,13 @@
+/build/
+/out/
+/docs/
+/pack/
+/lib/CU-Utils/
+/pack/stage-*/
+/CMakeUserPresets.json
+/compile_commands.json
+/.cache/
+*.user
+.idea/
+.vs/
+/libs/
