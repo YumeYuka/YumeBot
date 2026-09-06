@@ -38,10 +38,28 @@ fi
 echo "Using C compiler: ${CC}"
 echo "Using C++ compiler: ${CXX}"
 
-cmake -S "${ROOT}" -B "${BUILD_DIR}" -G Ninja \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_CXX_COMPILER="${CXX}" \
+CMAKE_ARGS=(
+    -DCMAKE_BUILD_TYPE=Release
+    -DCMAKE_CXX_COMPILER="${CXX}"
     -DCMAKE_C_COMPILER="${CC}"
+)
+
+if [[ "$(uname -s)" == Linux ]]; then
+    LLVM_MAJOR="$("${CXX}" -dumpversion | cut -d. -f1)"
+    MODULES_JSON="/usr/lib/llvm-${LLVM_MAJOR}/lib/libc++.modules.json"
+    if [[ ! -f "${MODULES_JSON}" ]]; then
+        echo "Missing ${MODULES_JSON}; install libc++-${LLVM_MAJOR}-dev" >&2
+        exit 1
+    fi
+    CMAKE_ARGS+=(
+        "-DCMAKE_CXX_FLAGS=-stdlib=libc++"
+        "-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++ -lc++abi"
+        "-DCMAKE_CXX_STDLIB_MODULES_JSON=${MODULES_JSON}"
+    )
+    echo "Using libc++ modules metadata: ${MODULES_JSON}"
+fi
+
+cmake -S "${ROOT}" -B "${BUILD_DIR}" -G Ninja "${CMAKE_ARGS[@]}"
 
 if command -v nproc >/dev/null 2>&1; then
     JOBS="$(nproc)"

@@ -5,22 +5,26 @@ set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD
 )
 
 # Linux CI/images often lack libstdc++.modules.json; LLVM libc++ ships the metadata.
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER)
-    execute_process(
-            COMMAND "${CMAKE_CXX_COMPILER}" -dumpversion
-            OUTPUT_VARIABLE _yumebot_clang_version
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-            ERROR_QUIET
-    )
-    string(REGEX MATCH "^([0-9]+)" _yumebot_clang_major "${_yumebot_clang_version}")
-    if(_yumebot_clang_major)
-        set(_yumebot_libcxx_modules_json
-                "/usr/lib/llvm-${_yumebot_clang_major}/lib/libc++.modules.json")
-        if(EXISTS "${_yumebot_libcxx_modules_json}")
-            set(CMAKE_CXX_STDLIB_MODULES_JSON
-                    "${_yumebot_libcxx_modules_json}" CACHE FILEPATH "" FORCE)
-            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
-            set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_program(_yumebot_clangxx NAMES clang++ clang++-23 clang++-22)
+    if(_yumebot_clangxx)
+        execute_process(
+                COMMAND "${_yumebot_clangxx}" -dumpversion
+                OUTPUT_VARIABLE _yumebot_clang_version
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                ERROR_QUIET
+        )
+        string(REGEX MATCH "^([0-9]+)" _yumebot_clang_major "${_yumebot_clang_version}")
+        if(_yumebot_clang_major)
+            set(_yumebot_libcxx_modules_json
+                    "/usr/lib/llvm-${_yumebot_clang_major}/lib/libc++.modules.json")
+            if(EXISTS "${_yumebot_libcxx_modules_json}")
+                set(CMAKE_CXX_STDLIB_MODULES_JSON
+                        "${_yumebot_libcxx_modules_json}" CACHE FILEPATH "" FORCE)
+                set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+                set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++ -lc++abi")
+                message(STATUS "Using libc++ modules metadata: ${_yumebot_libcxx_modules_json}")
+            endif()
         endif()
     endif()
 endif()
