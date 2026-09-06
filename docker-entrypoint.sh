@@ -1,11 +1,25 @@
 #!/bin/sh
 set -eu
 
+require_bot_token() {
+    case "${BOT_TOKEN:-}" in
+        "" | "your_bot_token_here")
+            cat >&2 <<'EOF'
+BOT_TOKEN is not configured.
+
+Either:
+  1. Copy .env.example to .env and set BOT_TOKEN=...
+  2. Mount a config file: ./config.conf:/app/config.conf
+
+Then run: docker compose up -d
+EOF
+            exit 1
+            ;;
+    esac
+}
+
 if [ ! -f /app/config.conf ]; then
-    if [ -z "${BOT_TOKEN:-}" ]; then
-        echo "BOT_TOKEN is required when /app/config.conf is not mounted." >&2
-        exit 1
-    fi
+    require_bot_token
 
     {
         printf 'bot_token=%s\n' "$BOT_TOKEN"
