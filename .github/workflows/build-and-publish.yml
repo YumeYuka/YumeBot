@@ -38,7 +38,7 @@ jobs:
           version: ${{ env.LLVM_VERSION }}
 
       - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y ninja-build libssl-dev lld-23 libunwind-dev libc++-${{ env.LLVM_VERSION }}-dev libc++abi-${{ env.LLVM_VERSION }}-dev
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libssl-dev libc++-${{ env.LLVM_VERSION }}-dev libc++abi-${{ env.LLVM_VERSION }}-dev
 
       - name: Build release binary
         run: |
