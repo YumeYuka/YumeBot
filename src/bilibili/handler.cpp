@@ -129,7 +129,13 @@ auto BilibiliMessageHandler::handle(
                 std::string{"HTML"}
             );
             if (!upload.succeeded()) {
-                (void)bot.send_message(chat_id, "B站视频已下载，但发送到 Telegram 失败。", {}, thread_id);
+                Log::Warn("Bilibili Telegram upload failed: {} body={}", upload.error_text(), upload.body);
+                (void)bot.send_message(
+                    chat_id,
+                    "B站视频已下载，但发送到 Telegram 失败：" + upload.error_text(),
+                    {},
+                    thread_id
+                );
             }
             service_.delete_downloaded_file(video.file_path);
         } catch (const std::exception &ex) {

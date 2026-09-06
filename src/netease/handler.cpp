@@ -79,7 +79,13 @@ auto NeteaseMessageHandler::handle(TelegramBotClient &bot, const Message &messag
                 song.thumbnail_path
             );
             if (!upload.succeeded()) {
-                (void)bot.send_message(chat_id, "网易云音乐已下载，但发送到 Telegram 失败。", {}, thread_id);
+                Log::Warn("Netease Telegram upload failed: {} body={}", upload.error_text(), upload.body);
+                (void)bot.send_message(
+                    chat_id,
+                    "网易云音乐已下载，但发送到 Telegram 失败：" + upload.error_text(),
+                    {},
+                    thread_id
+                );
             }
             service_.delete_downloaded_file(song.file_path);
             if (song.thumbnail_path.has_value()) {

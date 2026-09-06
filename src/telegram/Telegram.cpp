@@ -4,6 +4,7 @@ import std;
 import config;
 import http;
 import http.response;
+import log;
 import telegram.join;
 import telegram.json;
 import telegram.member;
@@ -27,6 +28,21 @@ auto default_api_base(std::string api_base_url) -> std::string {
 
 auto is_official_host(std::string_view base) -> bool {
     return base == "https://api.telegram.org" || base == "http://api.telegram.org";
+}
+
+auto resolve_local_file_path(std::string_view path) -> std::string {
+    std::filesystem::path file{std::string{path}};
+    std::error_code ec;
+    auto absolute = std::filesystem::absolute(file, ec);
+    if (ec) {
+        return std::string{path};
+    }
+    auto canonical = std::filesystem::weakly_canonical(absolute, ec);
+    auto resolved = (ec ? absolute : canonical).generic_string();
+    if (!std::filesystem::exists(absolute) && !std::filesystem::exists(canonical)) {
+        Log::Warn("Local Bot API file does not exist: {}", resolved);
+    }
+    return resolved;
 }
 
 auto read_envelope(const HttpResponse &http) -> JsonValue {
@@ -174,21 +190,41 @@ auto TelegramBotClient::send_media_file(
     std::optional<std::string> thumbnail_path
 ) const -> TelegramResult<Message> {
     if (local_server_) {
+        const auto absolute_path = resolve_local_file_path(file_path);
+        std::optional<std::string> absolute_thumbnail;
+        if (thumbnail_path.has_value()) {
+            absolute_thumbnail = resolve_local_file_path(*thumbnail_path);
+        }
+        Log::Info(
+            "upload {} via local Bot API path={} size={}",
+            method,
+            absolute_path,
+            std::filesystem::exists(absolute_path)
+                ? std::to_string(std::filesystem::file_size(absolute_path))
+                : std::string{"missing"}
+        );
         JsonValue::Object object;
         json_put(object, "chat_id", chat_id);
-        json_put(object, std::string{file_field}, std::string{file_path});
+        json_put(object, std::string{file_field}, absolute_path);
         json_put(object, "caption", caption);
         json_put(object, "parse_mode", parse_mode);
         json_put(object, "message_thread_id", message_thread_id);
         json_put(object, "duration", duration_seconds);
         json_put(object, "title", title);
         json_put(object, "performer", performer);
-        if (thumbnail_path.has_value()) {
-            json_put(object, "thumbnail", *thumbnail_path);
+        if (method == "sendVideo") {
+            json_put(object, "supports_streaming", true);
+        }
+        if (absolute_thumbnail.has_value()) {
+            json_put(object, "thumbnail", *absolute_thumbnail);
         }
         const auto headers = json_header();
         const auto http = http_.post(file_method_url(method), JsonValue::object(std::move(object)).dump(), headers);
-        return envelope_to_result<Message>(http, [](const JsonValue &json) { return Message::from_json(json); });
+        auto result = envelope_to_result<Message>(http, [](const JsonValue &json) { return Message::from_json(json); });
+        if (!result.succeeded()) {
+            Log::Warn("Telegram {} failed: {} body={}", method, result.error_text(), result.body);
+        }
+        return result;
     }
 
     std::vector<HttpMultipartPart> parts;
