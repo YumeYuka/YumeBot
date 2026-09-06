@@ -103,4 +103,5 @@ if [ -n "${TELEGRAM_API_ID:-}" ] && [ -n "${TELEGRAM_API_HASH:-}" ]; then
     echo "telegram-bot-api is ready at ${TELEGRAM_API_BASE_URL}"
 fi
 
+export LD_LIBRARY_PATH="/app/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 exec /app/yumebot "$@"

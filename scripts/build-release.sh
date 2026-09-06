@@ -69,7 +69,39 @@ fi
 
 cmake --build "${BUILD_DIR}" --target YumeBot -j "${JOBS}"
 
-cp "${BUILD_DIR}/bin/YumeBot" "${DIST_DIR}/${ARTIFACT_NAME}"
+BIN="${BUILD_DIR}/bin/YumeBot"
+cp "${BIN}" "${DIST_DIR}/${ARTIFACT_NAME}"
 chmod +x "${DIST_DIR}/${ARTIFACT_NAME}"
+
+if [[ "$(uname -s)" == Linux ]]; then
+    LIBDIR="${DIST_DIR}/lib"
+    mkdir -p "${LIBDIR}"
+    echo "Shared libraries:"
+    ldd "${BIN}"
+
+    while IFS= read -r so; do
+        [ -n "${so}" ] && [ -f "${so}" ] || continue
+        base="$(basename "${so}")"
+        case "${base}" in
+            libc++.so*|libc++abi.so*|libunwind.so*)
+                cp -L "${so}" "${LIBDIR}/${base}"
+                echo "Bundled ${base} <- ${so}"
+                ;;
+        esac
+    done < <(ldd "${BIN}" | awk '/=>/ {print $3}')
+
+    if ! ls "${LIBDIR}"/libc++abi.so* >/dev/null 2>&1; then
+        echo "Failed to bundle libc++abi; yumebot will not run in Docker." >&2
+        ldd "${BIN}" >&2
+        exit 1
+    fi
+
+    if command -v patchelf >/dev/null 2>&1; then
+        patchelf --set-rpath '$ORIGIN/lib' "${DIST_DIR}/${ARTIFACT_NAME}"
+    fi
+
+    echo "Bundled runtime libs:"
+    ls -l "${LIBDIR}"
+fi
 
 echo "Built ${DIST_DIR}/${ARTIFACT_NAME}"

@@ -104,7 +104,11 @@ target_include_directories(YumeBot
 target_link_libraries(YumeBot PRIVATE CURL::libcurl)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    target_link_options(YumeBot PRIVATE -stdlib=libc++ -lc++abi)
+    target_link_options(YumeBot PRIVATE -stdlib=libc++ -lc++abi "-Wl,-rpath,\$ORIGIN/lib")
+    set_target_properties(YumeBot PROPERTIES
+            BUILD_RPATH "$ORIGIN/lib"
+            INSTALL_RPATH "$ORIGIN/lib"
+    )
 endif()
 
 file(GLOB _module_dirs LIST_DIRECTORIES true "${CMAKE_CURRENT_SOURCE_DIR}/src/*")
