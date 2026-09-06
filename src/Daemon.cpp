@@ -1,12 +1,19 @@
 module daemon;
 
+import bilibili.handler;
+import bilibili.service;
 import config;
+import event.command;
+import event.markup;
+import event.pending;
+import event.verification;
 import log;
+import netease.handler;
+import netease.service;
 import std;
 import telegram;
-import telegram.markup;
+import telegram.chat;
 import telegram.message;
-import telegram.request;
 import telegram.update;
 import telegram.user;
 
@@ -17,7 +24,8 @@ constexpr auto k_transient_backoff = std::chrono::seconds{1};
 
 auto is_transient_telegram_error(const std::string &message) -> bool {
     return message.find("prematurely closed") != std::string::npos
-        || message.find("Not enough data") != std::string::npos;
+        || message.find("Not enough data") != std::string::npos
+        || message.find("Conflict") != std::string::npos;
 }
 
 auto register_bot_commands(const TelegramBotClient &bot) -> void {
@@ -38,143 +46,144 @@ auto register_bot_commands(const TelegramBotClient &bot) -> void {
     }
 }
 
-auto handle_callback_query(TelegramBotClient &bot, const CallbackQuery &query) -> void {
-    if (!query.data.has_value() || !query.message.has_value()) {
-        return;
+struct BotRuntime {
+    TelegramBotClient &bot;
+    const Config &config;
+    VerificationService &verification;
+    CommandHandler &commands;
+};
+
+auto user_label(const User &user) -> std::string {
+    if (user.username.has_value() && !user.username->empty()) {
+        return std::format("@{} ({})", *user.username, user.id);
     }
-
-    const auto &data = *query.data;
-    const auto &message = *query.message;
-
-    Log::Info(
-        "callback_query: id={}, data={}, chat={}, message={}",
-        query.id,
-        data,
-        message.chat.id,
-        message.message_id
-    );
-
-    if (data.starts_with("admin_pass:") || data.starts_with("admin_ban:")) {
-        (void)bot.answer_callback_query(AnswerCallbackQueryRequest{
-            .callback_query_id = query.id,
-            .text = std::string{"功能开发中"},
-            .show_alert = true,
-        });
+    if (!user.first_name.empty()) {
+        return std::format("{} ({})", user.first_name, user.id);
     }
+    return std::format("id={}", user.id);
 }
 
-auto handle_message(
-    TelegramBotClient &bot,
-    const Config &config,
-    const std::string &bot_username,
-    const Message &message
-) -> void {
-    if (message.new_chat_members.has_value() && !message.new_chat_members->empty()) {
-        Log::Info(
-            "new_chat_members: chat={}, count={}",
-            message.chat.id,
-            message.new_chat_members->size()
-        );
-        return;
+auto chat_label(const Chat &chat) -> std::string {
+    if (chat.title.has_value() && !chat.title->empty()) {
+        return std::format("{} ({})", *chat.title, chat.id);
     }
-
-    if (message.left_chat_member.has_value()) {
-        Log::Info("left_chat_member: chat={}", message.chat.id);
-        return;
+    if (chat.username.has_value() && !chat.username->empty()) {
+        return std::format("@{} ({})", *chat.username, chat.id);
     }
-
-    if (message.web_app_data.has_value()) {
-        Log::Info(
-            "web_app_data: chat={}, user={}",
-            message.chat.id,
-            message.from.has_value() ? message.from->id : 0
-        );
-        return;
-    }
-
-    if (!message.text.has_value()) {
-        return;
-    }
-
-    const auto &text = *message.text;
-    if (text.starts_with("/start")) {
-        Log::Info("/start from chat={} user={}", message.chat.id, message.from.has_value() ? message.from->id : 0);
-        if (message.chat.type == "private") {
-            if (config.mini_app_url().empty()) {
-                (void)bot.send_message(message.chat.id, "验证入口尚未配置。");
-            } else {
-                (void)bot.send_message(SendMessageRequest{
-                    .chat_id = message.chat.id,
-                    .text = "请点击下方按钮打开验证页面，完成验证后会自动解除群内发言限制。",
-                    .reply_markup = ReplyKeyboardMarkup{
-                        .keyboard = {{
-                            KeyboardButton{
-                                .text = "打开验证页面",
-                                .web_app = WebAppInfo{.url = config.mini_app_url()},
-                            },
-                        }},
-                    },
-                });
-            }
-        } else if (!bot_username.empty()) {
-            (void)bot.send_message(SendMessageRequest{
-                .chat_id = message.chat.id,
-                .text = "请点击下方按钮前往机器人私聊页面完成验证。",
-                .message_thread_id = message.message_thread_id,
-                .reply_markup = InlineKeyboardMarkup{
-                    .inline_keyboard = {{
-                        InlineKeyboardButton{
-                            .text = "前往机器人验证",
-                            .url = "https://t.me/" + bot_username + "?start=join",
-                        },
-                    }},
-                },
-            });
-        }
-        return;
-    }
-
-    if (text.starts_with("/ban") || text.starts_with("/pass")) {
-        Log::Info("admin command: {}", text);
-    }
+    return std::format("{} ({})", chat.type, chat.id);
 }
 
-auto handle_update(
-    TelegramBotClient &bot,
-    const Config &config,
-    const std::string &bot_username,
-    const Update &update
-) -> void {
+auto preview_text(std::string_view text) -> std::string {
+    constexpr std::size_t k_max = 200;
+    if (text.size() <= k_max) {
+        return std::string{text};
+    }
+    return std::string{text.substr(0, k_max)} + "...";
+}
+
+auto log_incoming_update(const Update &update) -> void {
     if (update.chat_join_request.has_value()) {
         const auto &join = *update.chat_join_request;
         Log::Info(
-            "chat_join_request: chat={}, user={}, user_chat_id={}",
-            join.chat.id,
-            join.from.id,
-            join.user_chat_id
+            "recv chat_join_request chat={} user={}",
+            chat_label(join.chat),
+            user_label(join.from)
         );
         return;
     }
 
     if (update.callback_query.has_value()) {
-        handle_callback_query(bot, *update.callback_query);
+        const auto &query = *update.callback_query;
+        Log::Info(
+            "recv callback_query from={} data={}",
+            user_label(query.from),
+            query.data.value_or("")
+        );
         return;
     }
 
-    if (update.message.has_value()) {
-        handle_message(bot, config, bot_username, *update.message);
+    if (!update.message.has_value()) {
+        Log::Info("recv update id={} (unhandled type)", update.update_id);
+        return;
     }
+
+    const auto &message = *update.message;
+    const auto from = message.from.has_value() ? user_label(*message.from) : std::string{"unknown"};
+    if (message.new_chat_members.has_value()) {
+        Log::Info(
+            "recv new_chat_members chat={} from={} count={}",
+            chat_label(message.chat),
+            from,
+            message.new_chat_members->size()
+        );
+        return;
+    }
+    if (message.left_chat_member.has_value()) {
+        Log::Info(
+            "recv left_chat_member chat={} user={}",
+            chat_label(message.chat),
+            user_label(*message.left_chat_member)
+        );
+        return;
+    }
+    if (message.web_app_data.has_value()) {
+        Log::Info("recv web_app_data chat={} from={}", chat_label(message.chat), from);
+        return;
+    }
+    Log::Info(
+        "recv message chat={} from={} text={}",
+        chat_label(message.chat),
+        from,
+        message.text.has_value() ? preview_text(*message.text) : std::string{"<non-text>"}
+    );
 }
 
-auto poll_updates(TelegramBotClient &bot, const Config &config, const std::string &bot_username) -> void {
+auto handle_update(BotRuntime &runtime, const Update &update) -> void {
+    log_incoming_update(update);
+    if (update.chat_join_request.has_value()) {
+        runtime.verification.handle_chat_join_request(runtime.bot, *update.chat_join_request);
+        return;
+    }
+
+    if (update.callback_query.has_value()) {
+        runtime.verification.handle_callback_query(runtime.bot, *update.callback_query);
+        return;
+    }
+
+    if (!update.message.has_value()) {
+        return;
+    }
+
+    const auto &message = *update.message;
+    if (message.new_chat_members.has_value() && !message.new_chat_members->empty()) {
+        runtime.verification.handle_new_chat_members(runtime.bot, message);
+        return;
+    }
+
+    if (message.left_chat_member.has_value()) {
+        runtime.verification.handle_left_chat_member(runtime.bot, message);
+        return;
+    }
+
+    if (message.web_app_data.has_value()) {
+        runtime.verification.handle_web_app_data(runtime.bot, message);
+        return;
+    }
+
+    (void)runtime.commands.handle(runtime.bot, runtime.config, message);
+}
+
+auto poll_updates(BotRuntime &runtime) -> void {
     std::optional<std::int64_t> next_offset;
 
     while (true) {
+        runtime.verification.expire_pending_verifications(runtime.bot);
+
         GetUpdatesRequest request;
         request.offset = next_offset;
         request.timeout = k_polling_timeout_seconds;
 
-        const auto result = bot.get_updates(request);
+        const auto result = runtime.bot.get_updates(request);
         if (!result.succeeded()) {
             const auto message = result.description.value_or("getUpdates failed");
             if (is_transient_telegram_error(message)) {
@@ -189,7 +198,7 @@ auto poll_updates(TelegramBotClient &bot, const Config &config, const std::strin
         for (const auto &update : *result.result) {
             bool handled = true;
             try {
-                handle_update(bot, config, bot_username, update);
+                handle_update(runtime, update);
             } catch (const std::exception &ex) {
                 Log::Error("Update {} failed: {}", update.update_id, ex.what());
                 handled = !is_transient_telegram_error(ex.what());
@@ -224,12 +233,32 @@ auto Daemon::run(const Config &config) -> void {
     }
 
     Log::Info(
-        "Bot ready: id={}, username={}, api={}",
+        "Bot ready: id={}, username={}, poll=https://api.telegram.org, upload={}",
         me.result->id,
         bot_username.empty() ? "unknown" : bot_username,
-        config.telegram_api_base_url()
+        bot.is_local_bot_api_server() ? config.telegram_api_base_url() : std::string{"https://api.telegram.org"}
     );
 
+    PendingRepository pending;
+    MarkupFactory markup{bot_username};
+    VerificationService verification{bot_username, markup, pending};
+    BilibiliService bilibili_service;
+    BilibiliMessageHandler bilibili{bilibili_service};
+    std::optional<std::string> music_u;
+    if (!config.netease_music_u().empty()) {
+        music_u = config.netease_music_u();
+    }
+    NeteaseService netease_service{std::move(music_u), bot.is_local_bot_api_server()};
+    NeteaseMessageHandler netease{netease_service, bot_username};
+    CommandHandler commands{markup, pending, verification, bilibili, netease};
+
     register_bot_commands(bot);
-    poll_updates(bot, config, bot_username);
+
+    BotRuntime runtime{
+        .bot = bot,
+        .config = config,
+        .verification = verification,
+        .commands = commands,
+    };
+    poll_updates(runtime);
 }

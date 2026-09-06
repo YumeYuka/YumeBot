@@ -105,9 +105,11 @@ private:
     HttpClient http_;
     std::string token_;
     std::string api_base_url_;
+    std::string upload_api_base_url_;
     bool local_server_{false};
 
     [[nodiscard]] auto method_url(std::string_view method) const -> std::string;
+    [[nodiscard]] auto file_method_url(std::string_view method) const -> std::string;
 
     [[nodiscard]] auto execute_message(std::string_view method, const JsonValue &body) const -> TelegramResult<Message>;
 

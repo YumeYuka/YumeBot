@@ -235,7 +235,8 @@ auto CommandHandler::handle(
     }
 
     if (trimmed.starts_with("/pass")
-        || trimmed.starts_with("/approve")) {
+        || trimmed.starts_with("/approve")
+        || trimmed.starts_with("/通过")) {
         handle_pass(bot, message);
         return true;
     }

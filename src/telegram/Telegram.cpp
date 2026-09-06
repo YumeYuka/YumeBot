@@ -79,13 +79,26 @@ TelegramBotClient::TelegramBotClient(Config config)
 
 TelegramBotClient::TelegramBotClient(std::string token, std::string api_base_url)
     : token_{std::move(token)}
-    , api_base_url_{default_api_base(std::move(api_base_url))}
-    , local_server_{!is_official_host(api_base_url_)} {}
+    , api_base_url_{"https://api.telegram.org"}
+    , upload_api_base_url_{default_api_base(std::move(api_base_url))}
+    , local_server_{!is_official_host(upload_api_base_url_)} {}
 
 auto TelegramBotClient::method_url(std::string_view method) const -> std::string {
     std::string url;
     url.reserve(api_base_url_.size() + token_.size() + method.size() + 8);
     url += api_base_url_;
+    url += "/bot";
+    url += token_;
+    url += '/';
+    url += method;
+    return url;
+}
+
+auto TelegramBotClient::file_method_url(std::string_view method) const -> std::string {
+    const auto &base = local_server_ ? upload_api_base_url_ : api_base_url_;
+    std::string url;
+    url.reserve(base.size() + token_.size() + method.size() + 8);
+    url += base;
     url += "/bot";
     url += token_;
     url += '/';
@@ -173,7 +186,9 @@ auto TelegramBotClient::send_media_file(
         if (thumbnail_path.has_value()) {
             json_put(object, "thumbnail", *thumbnail_path);
         }
-        return execute_message(method, JsonValue::object(std::move(object)));
+        const auto headers = json_header();
+        const auto http = http_.post(file_method_url(method), JsonValue::object(std::move(object)).dump(), headers);
+        return envelope_to_result<Message>(http, [](const JsonValue &json) { return Message::from_json(json); });
     }
 
     std::vector<HttpMultipartPart> parts;
@@ -217,7 +232,7 @@ auto TelegramBotClient::send_media_file(
         parts.push_back(HttpMultipartPart{.name = "thumbnail", .value = {}, .file_path = *thumbnail_path});
     }
 
-    const auto http = http_.post_multipart(method_url(method), parts);
+    const auto http = http_.post_multipart(file_method_url(method), parts);
     return envelope_to_result<Message>(http, [](const JsonValue &json) { return Message::from_json(json); });
 }
 
