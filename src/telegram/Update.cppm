@@ -69,6 +69,7 @@ export struct GetUpdatesRequest {
     std::vector<std::string> allowed_updates{
         "message",
         "chat_member",
+        "my_chat_member",
         "chat_join_request",
         "callback_query",
     };

@@ -13,6 +13,7 @@ import netease.service;
 import std;
 import telegram;
 import telegram.chat;
+import telegram.member;
 import telegram.message;
 import telegram.update;
 import telegram.user;
@@ -92,6 +93,31 @@ auto log_incoming_update(const Update &update) -> void {
         return;
     }
 
+    if (update.chat_member.has_value()) {
+        const auto &member = *update.chat_member;
+        Log::Info(
+            "recv chat_member chat={} actor={} user={} {} -> {} via_join_request={}",
+            chat_label(member.chat),
+            user_label(member.from),
+            user_label(member.new_chat_member.user),
+            member.old_chat_member.status,
+            member.new_chat_member.status,
+            member.via_join_request.value_or(false)
+        );
+        return;
+    }
+
+    if (update.my_chat_member.has_value()) {
+        const auto &mine = *update.my_chat_member;
+        Log::Info(
+            "recv my_chat_member chat={} {} -> {}",
+            chat_label(mine.chat),
+            mine.old_chat_member.status,
+            mine.new_chat_member.status
+        );
+        return;
+    }
+
     if (update.callback_query.has_value()) {
         const auto &query = *update.callback_query;
         Log::Info(
@@ -142,6 +168,15 @@ auto handle_update(BotRuntime &runtime, const Update &update) -> void {
     log_incoming_update(update);
     if (update.chat_join_request.has_value()) {
         runtime.verification.handle_chat_join_request(runtime.bot, *update.chat_join_request);
+        return;
+    }
+
+    if (update.chat_member.has_value()) {
+        runtime.verification.handle_chat_member(runtime.bot, *update.chat_member);
+        return;
+    }
+
+    if (update.my_chat_member.has_value()) {
         return;
     }
 

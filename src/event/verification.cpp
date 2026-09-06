@@ -42,6 +42,18 @@ auto escape_html(const std::string &text) -> std::string {
     return escaped;
 }
 
+auto is_in_chat(const ChatMember &member) -> bool {
+    if (member.status == "left" || member.status == "kicked") {
+        return false;
+    }
+    if (member.status == "restricted") {
+        return member.is_member.value_or(false);
+    }
+    return member.status == "member"
+        || member.status == "administrator"
+        || member.status == "creator";
+}
+
 auto muted_permissions() -> ChatPermissions {
     return ChatPermissions{
         .can_send_messages = false,
@@ -336,6 +348,75 @@ auto VerificationService::handle_chat_join_request(
     );
 }
 
+auto VerificationService::begin_group_verification(
+    TelegramBotClient &bot,
+    TelegramId chat_id,
+    const User &member,
+    std::optional<std::int64_t> message_thread_id
+) -> void {
+    pending_.record_user(member);
+    if (member.is_bot || pending_.consume_approved(member.id)) {
+        return;
+    }
+    if (pending_.find_by_user_id(member.id).has_value()) {
+        Log::Info("Verification already pending: chat={}, user={}", chat_id, member.id);
+        return;
+    }
+
+    if (profile_screen_and_block(bot, chat_id, member, std::nullopt, true)) {
+        return;
+    }
+
+    const auto restrict = bot.restrict_chat_member(RestrictChatMemberRequest{
+        .chat_id = chat_id,
+        .user_id = member.id,
+        .permissions = muted_permissions(),
+        .until_date = 0,
+    });
+    if (!restrict.succeeded()) {
+        Log::Warn(
+            "Restrict new member failed: chat={}, user={}, error={}",
+            chat_id,
+            member.id,
+            restrict.description.value_or("unknown error")
+        );
+        return;
+    }
+
+    SendMessageRequest request{
+        .chat_id = chat_id,
+        .text = build_group_prompt(member),
+        .parse_mode = std::string{"HTML"},
+        .message_thread_id = message_thread_id,
+    };
+    if (const auto markup = markup_.inline_guide_markup(member.id)) {
+        request.reply_markup = *markup;
+    }
+
+    const auto prompt = bot.send_message(request);
+    if (!prompt.succeeded()) {
+        Log::Error(
+            "Send verification prompt failed: chat={}, user={}, error={}",
+            chat_id,
+            member.id,
+            prompt.description.value_or("unknown error")
+        );
+        return;
+    }
+
+    pending_.save(PendingJoinRequest{
+        .chat_id = chat_id,
+        .user_id = member.id,
+        .user_chat_id = member.id,
+        .prompt_chat_id = chat_id,
+        .prompt_message_id = prompt.result->message_id,
+        .expires_at_millis = now_millis() + k_verification_timeout_millis,
+        .needs_unmute_on_success = true,
+    });
+
+    Log::Info("New member muted for verification: chat={}, user={}", chat_id, member.id);
+}
+
 auto VerificationService::handle_new_chat_members(
     TelegramBotClient &bot,
     const Message &message
@@ -347,67 +428,16 @@ auto VerificationService::handle_new_chat_members(
     delete_message_quietly(bot, message.chat.id, message.message_id);
 
     for (const auto &member : *message.new_chat_members) {
-        pending_.record_user(member);
-        if (member.is_bot || pending_.consume_approved(member.id)) {
-            continue;
-        }
+        begin_group_verification(bot, message.chat.id, member, message.message_thread_id);
+    }
+}
 
-        if (profile_screen_and_block(bot, message.chat.id, member, std::nullopt, true)) {
-            continue;
-        }
-
-        const auto restrict = bot.restrict_chat_member(RestrictChatMemberRequest{
-            .chat_id = message.chat.id,
-            .user_id = member.id,
-            .permissions = muted_permissions(),
-            .until_date = 0,
-        });
-        if (!restrict.succeeded()) {
-            Log::Warn(
-                "Restrict new member failed: chat={}, user={}, error={}",
-                message.chat.id,
-                member.id,
-                restrict.description.value_or("unknown error")
-            );
-            continue;
-        }
-
-        SendMessageRequest request{
-            .chat_id = message.chat.id,
-            .text = build_group_prompt(member),
-            .parse_mode = std::string{"HTML"},
-            .message_thread_id = message.message_thread_id,
-        };
-        if (const auto markup = markup_.inline_guide_markup(member.id)) {
-            request.reply_markup = *markup;
-        }
-
-        const auto prompt = bot.send_message(request);
-        if (!prompt.succeeded()) {
-            Log::Error(
-                "Send verification prompt failed: chat={}, user={}, error={}",
-                message.chat.id,
-                member.id,
-                prompt.description.value_or("unknown error")
-            );
-            continue;
-        }
-
-        pending_.save(PendingJoinRequest{
-            .chat_id = message.chat.id,
-            .user_id = member.id,
-            .user_chat_id = member.id,
-            .prompt_chat_id = message.chat.id,
-            .prompt_message_id = prompt.result->message_id,
-            .expires_at_millis = now_millis() + k_verification_timeout_millis,
-            .needs_unmute_on_success = true,
-        });
-
-        Log::Info(
-            "New member muted for verification: chat={}, user={}",
-            message.chat.id,
-            member.id
-        );
+auto VerificationService::handle_chat_member(
+    TelegramBotClient &bot,
+    const ChatMemberUpdated &update
+) -> void {
+    if (!is_in_chat(update.old_chat_member) && is_in_chat(update.new_chat_member)) {
+        begin_group_verification(bot, update.chat.id, update.new_chat_member.user, {});
     }
 }
 

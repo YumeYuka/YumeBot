@@ -8,8 +8,10 @@ import std;
 import telegram;
 import telegram.join;
 import telegram.message;
+import telegram.member;
 import telegram.types;
 import telegram.update;
+import telegram.user;
 
 export class VerificationService {
 public:
@@ -18,6 +20,8 @@ public:
     auto handle_chat_join_request(TelegramBotClient &bot, const ChatJoinRequest &join_request) -> void;
 
     auto handle_new_chat_members(TelegramBotClient &bot, const Message &message) -> void;
+
+    auto handle_chat_member(TelegramBotClient &bot, const ChatMemberUpdated &update) -> void;
 
     auto handle_left_chat_member(TelegramBotClient &bot, const Message &message) -> void;
 
@@ -44,6 +48,13 @@ public:
     ) -> bool;
 
 private:
+    auto begin_group_verification(
+        TelegramBotClient &bot,
+        TelegramId chat_id,
+        const User &member,
+        std::optional<std::int64_t> message_thread_id
+    ) -> void;
+
     std::string bot_username_;
     MarkupFactory markup_;
     PendingRepository &pending_;
