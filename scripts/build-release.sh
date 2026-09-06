@@ -9,7 +9,7 @@ ARTIFACT_NAME="${1:-yumebot-linux-x64}"
 mkdir -p "${DIST_DIR}"
 
 detect_clang() {
-    for candidate in clang++-21 clang++-20 clang++-19 clang++; do
+    for candidate in clang++-23 clang++-22 clang++; do
         if command -v "${candidate}" >/dev/null 2>&1; then
             echo "${candidate}"
             return 0
@@ -19,10 +19,15 @@ detect_clang() {
 }
 
 CXX="$(detect_clang)" || {
-    echo "No suitable clang++ found. Install LLVM 19+ (clang++-21 recommended)." >&2
+    echo "No suitable clang++ found. Install LLVM 22+ (clang++-23 recommended)." >&2
     exit 1
 }
-CC="${CXX%++}"
+case "${CXX}" in
+    */clang++-*) CC="${CXX%/*}/clang-${CXX##*/clang++-}" ;;
+    clang++-*)   CC="clang-${CXX#clang++-}" ;;
+    *clang++)    CC="${CXX%++}" ;;
+    *)           CC="${CXX}" ;;
+esac
 
 if [ -z "${OPENSSL_ROOT_DIR:-}" ] && command -v brew >/dev/null 2>&1; then
     if brew --prefix openssl@3 >/dev/null 2>&1; then
@@ -30,7 +35,8 @@ if [ -z "${OPENSSL_ROOT_DIR:-}" ] && command -v brew >/dev/null 2>&1; then
     fi
 fi
 
-echo "Using compiler: ${CXX}"
+echo "Using C compiler: ${CC}"
+echo "Using C++ compiler: ${CXX}"
 
 cmake -S "${ROOT}" -B "${BUILD_DIR}" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
