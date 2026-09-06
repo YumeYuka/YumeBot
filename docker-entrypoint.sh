@@ -49,14 +49,27 @@ fi
 if [ -n "${TELEGRAM_API_ID:-}" ] && [ -n "${TELEGRAM_API_HASH:-}" ]; then
     TELEGRAM_API_PORT="${TELEGRAM_API_PORT:-8081}"
     export TELEGRAM_API_BASE_URL="${TELEGRAM_API_BASE_URL:-http://127.0.0.1:${TELEGRAM_API_PORT}}"
+    export TELEGRAM_API_ID
+    export TELEGRAM_API_HASH
 
     mkdir -p /app/data/telegram-bot-api /tmp/telegram-bot-api-temp
+    : >/app/data/telegram-bot-api.log 2>/dev/null || true
+
     echo "Starting local telegram-bot-api on port ${TELEGRAM_API_PORT}..."
+    if ! telegram-bot-api --help >/app/data/telegram-bot-api-help.txt 2>/app/data/telegram-bot-api-startup.log; then
+        echo "telegram-bot-api binary is not runnable; diagnostics:" >&2
+        cat /app/data/telegram-bot-api-startup.log >&2 || true
+        exit 1
+    fi
+
     telegram-bot-api --local \
+        --api-id="${TELEGRAM_API_ID}" \
+        --api-hash="${TELEGRAM_API_HASH}" \
         --http-port="${TELEGRAM_API_PORT}" \
         --dir=/app/data/telegram-bot-api \
         --temp-dir=/tmp/telegram-bot-api-temp \
-        --log=/app/data/telegram-bot-api.log &
+        --log=/app/data/telegram-bot-api.log \
+        >>/app/data/telegram-bot-api-startup.log 2>&1 &
     tg_api_pid=$!
 
     ready=0
@@ -64,7 +77,8 @@ if [ -n "${TELEGRAM_API_ID:-}" ] && [ -n "${TELEGRAM_API_HASH:-}" ]; then
     while [ "$i" -lt 30 ]; do
         if ! kill -0 "$tg_api_pid" 2>/dev/null; then
             echo "telegram-bot-api exited during startup; last log lines:" >&2
-            tail -20 /app/data/telegram-bot-api.log >&2 || true
+            tail -50 /app/data/telegram-bot-api-startup.log >&2 || true
+            tail -50 /app/data/telegram-bot-api.log >&2 || true
             exit 1
         fi
         if curl -s -o /dev/null "http://127.0.0.1:${TELEGRAM_API_PORT}/"; then
@@ -76,6 +90,8 @@ if [ -n "${TELEGRAM_API_ID:-}" ] && [ -n "${TELEGRAM_API_HASH:-}" ]; then
     done
     if [ "$ready" -ne 1 ]; then
         echo "telegram-bot-api did not become ready in 30s" >&2
+        tail -50 /app/data/telegram-bot-api-startup.log >&2 || true
+        tail -50 /app/data/telegram-bot-api.log >&2 || true
         exit 1
     fi
 
