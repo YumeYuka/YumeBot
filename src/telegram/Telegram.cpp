@@ -45,6 +45,22 @@ auto resolve_local_file_path(std::string_view path) -> std::string {
     return resolved;
 }
 
+// telegram-bot-api only treats local files as InputFileLocal when the value uses
+// the file URI scheme. A raw path like /app/data/foo.mp4 is parsed as an HTTP URL
+// with an empty host ("URL host is empty").
+auto to_file_uri(std::string_view path) -> std::string {
+    if (path.starts_with("file:")) {
+        return std::string{path};
+    }
+    if (path.size() >= 2 && path[1] == ':') {
+        return "file:///" + std::string{path};
+    }
+    if (path.starts_with('/')) {
+        return "file://" + std::string{path};
+    }
+    return "file:///" + std::string{path};
+}
+
 auto read_envelope(const HttpResponse &http) -> JsonValue {
     if (!http.error.empty()) {
         JsonValue::Object object;
@@ -64,11 +80,14 @@ auto read_envelope(const HttpResponse &http) -> JsonValue {
 template<typename T>
 auto envelope_to_result(const HttpResponse &http, auto &&decode) -> TelegramResult<T> {
     TelegramResult<T> out;
-    out.body = http.body;
+    out.body = http.body.empty() ? http.error : http.body;
     try {
         const auto json = read_envelope(http);
         out.ok = json_bool(json, "ok").value_or(false);
         out.description = json_string(json, "description");
+        if (!out.description.has_value() && !http.error.empty()) {
+            out.description = http.error;
+        }
         if (const auto code = json_i64(json, "error_code")) {
             out.error_code = static_cast<int>(*code);
         }
@@ -82,6 +101,27 @@ auto envelope_to_result(const HttpResponse &http, auto &&decode) -> TelegramResu
         out.description = ex.what();
     }
     return out;
+}
+
+auto log_file_send_result(
+    std::string_view method,
+    std::string_view endpoint,
+    const HttpResponse &http,
+    const TelegramResult<Message> &result
+) -> void {
+    if (result.succeeded()) {
+        Log::Info("Telegram {} ok http={}", method, http.status_code);
+        return;
+    }
+    Log::Error(
+        "Telegram {} failed endpoint={} http={} curl={} error={} body={}",
+        method,
+        endpoint,
+        http.status_code,
+        http.error.empty() ? "-" : http.error,
+        result.error_text(),
+        result.body.empty() ? "-" : result.body
+    );
 }
 
 auto json_header() -> std::array<std::pair<std::string, std::string>, 1> {
@@ -191,21 +231,24 @@ auto TelegramBotClient::send_media_file(
 ) const -> TelegramResult<Message> {
     if (local_server_) {
         const auto absolute_path = resolve_local_file_path(file_path);
-        std::optional<std::string> absolute_thumbnail;
+        const auto file_uri = to_file_uri(absolute_path);
+        std::optional<std::string> thumbnail_uri;
         if (thumbnail_path.has_value()) {
-            absolute_thumbnail = resolve_local_file_path(*thumbnail_path);
+            thumbnail_uri = to_file_uri(resolve_local_file_path(*thumbnail_path));
         }
         Log::Info(
-            "upload {} via local Bot API path={} size={}",
+            "upload {} via local Bot API endpoint={} path={} uri={} size={}",
             method,
+            upload_api_base_url_,
             absolute_path,
+            file_uri,
             std::filesystem::exists(absolute_path)
                 ? std::to_string(std::filesystem::file_size(absolute_path))
                 : std::string{"missing"}
         );
         JsonValue::Object object;
         json_put(object, "chat_id", chat_id);
-        json_put(object, std::string{file_field}, absolute_path);
+        json_put(object, std::string{file_field}, file_uri);
         json_put(object, "caption", caption);
         json_put(object, "parse_mode", parse_mode);
         json_put(object, "message_thread_id", message_thread_id);
@@ -215,15 +258,13 @@ auto TelegramBotClient::send_media_file(
         if (method == "sendVideo") {
             json_put(object, "supports_streaming", true);
         }
-        if (absolute_thumbnail.has_value()) {
-            json_put(object, "thumbnail", *absolute_thumbnail);
+        if (thumbnail_uri.has_value()) {
+            json_put(object, "thumbnail", *thumbnail_uri);
         }
         const auto headers = json_header();
         const auto http = http_.post(file_method_url(method), JsonValue::object(std::move(object)).dump(), headers);
         auto result = envelope_to_result<Message>(http, [](const JsonValue &json) { return Message::from_json(json); });
-        if (!result.succeeded()) {
-            Log::Warn("Telegram {} failed: {} body={}", method, result.error_text(), result.body);
-        }
+        log_file_send_result(method, upload_api_base_url_, http, result);
         return result;
     }
 
@@ -268,8 +309,11 @@ auto TelegramBotClient::send_media_file(
         parts.push_back(HttpMultipartPart{.name = "thumbnail", .value = {}, .file_path = *thumbnail_path});
     }
 
+    Log::Info("upload {} via official Bot API path={}", method, file_path);
     const auto http = http_.post_multipart(file_method_url(method), parts);
-    return envelope_to_result<Message>(http, [](const JsonValue &json) { return Message::from_json(json); });
+    auto result = envelope_to_result<Message>(http, [](const JsonValue &json) { return Message::from_json(json); });
+    log_file_send_result(method, api_base_url_, http, result);
+    return result;
 }
 
 auto TelegramBotClient::send_document_file(

@@ -1,5 +1,6 @@
 module;
 
+#include <cstdio>
 #include <ctime>
 
 module log;
@@ -8,6 +9,7 @@ import std;
 
 auto Log::SetLevel(const LogLevel level) noexcept -> void {
     level_ = level;
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
 }
 
 namespace {
@@ -27,12 +29,16 @@ auto GetLocalTime() -> std::tm {
     return local;
 }
 
+std::mutex log_mutex;
+
 }  // namespace
 
 auto Log::LogMessage(const LogLevel level, std::string_view message) -> void {
     const auto local = GetLocalTime();
+    const std::lock_guard lock{log_mutex};
 
     std::println(
+        std::cout,
         "[{:02}-{:02} {:02}:{:02}:{:02}] ({}) {}",
         local.tm_mon + 1,
         local.tm_mday,
@@ -43,4 +49,5 @@ auto Log::LogMessage(const LogLevel level, std::string_view message) -> void {
         message
     );
     std::cout.flush();
+    std::fflush(stdout);
 }

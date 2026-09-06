@@ -109,6 +109,7 @@ auto BilibiliMessageHandler::handle(
         .message_thread_id = message.message_thread_id,
     });
     if (!progress.succeeded()) {
+        Log::Error("Bilibili progress message failed: {} body={}", progress.error_text(), progress.body);
         return true;
     }
 
@@ -120,6 +121,11 @@ auto BilibiliMessageHandler::handle(
     std::jthread([&, chat_id, thread_id, progress_id, url](std::stop_token) {
         try {
             const auto video = service_.download_video(url);
+            Log::Info(
+                "Bilibili downloaded path={} duration={}s",
+                video.file_path,
+                video.duration_seconds
+            );
             const auto upload = bot.send_video_file(
                 chat_id,
                 video.file_path,
@@ -129,17 +135,19 @@ auto BilibiliMessageHandler::handle(
                 std::string{"HTML"}
             );
             if (!upload.succeeded()) {
-                Log::Warn("Bilibili Telegram upload failed: {} body={}", upload.error_text(), upload.body);
+                Log::Error("Bilibili sendVideo failed: {} body={}", upload.error_text(), upload.body);
                 (void)bot.send_message(
                     chat_id,
                     "B站视频已下载，但发送到 Telegram 失败：" + upload.error_text(),
                     {},
                     thread_id
                 );
+            } else {
+                Log::Info("Bilibili sendVideo ok chat={}", chat_id);
             }
             service_.delete_downloaded_file(video.file_path);
         } catch (const std::exception &ex) {
-            Log::Warn("Bilibili job failed: {}", ex.what());
+            Log::Error("Bilibili job failed: {}", ex.what());
             (void)bot.send_message(
                 chat_id,
                 std::string{"B站视频处理失败："} + ex.what() + "\n原链接仍保留在聊天中：" + url,

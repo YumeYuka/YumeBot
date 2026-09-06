@@ -56,6 +56,7 @@ auto NeteaseMessageHandler::handle(TelegramBotClient &bot, const Message &messag
         .message_thread_id = message.message_thread_id,
     });
     if (!progress.succeeded()) {
+        Log::Error("Netease progress message failed: {} body={}", progress.error_text(), progress.body);
         return true;
     }
 
@@ -67,6 +68,7 @@ auto NeteaseMessageHandler::handle(TelegramBotClient &bot, const Message &messag
     std::jthread([&, chat_id, thread_id, progress_id, url](std::stop_token) {
         try {
             const auto song = service_.download_song(url);
+            Log::Info("Netease downloaded path={} size={}", song.file_path, song.size_bytes);
             const auto upload = bot.send_audio_file(
                 chat_id,
                 song.file_path,
@@ -79,20 +81,22 @@ auto NeteaseMessageHandler::handle(TelegramBotClient &bot, const Message &messag
                 song.thumbnail_path
             );
             if (!upload.succeeded()) {
-                Log::Warn("Netease Telegram upload failed: {} body={}", upload.error_text(), upload.body);
+                Log::Error("Netease sendAudio failed: {} body={}", upload.error_text(), upload.body);
                 (void)bot.send_message(
                     chat_id,
                     "网易云音乐已下载，但发送到 Telegram 失败：" + upload.error_text(),
                     {},
                     thread_id
                 );
+            } else {
+                Log::Info("Netease sendAudio ok chat={}", chat_id);
             }
             service_.delete_downloaded_file(song.file_path);
             if (song.thumbnail_path.has_value()) {
                 service_.delete_downloaded_file(*song.thumbnail_path);
             }
         } catch (const std::exception &ex) {
-            Log::Warn("Netease job failed: {}", ex.what());
+            Log::Error("Netease job failed: {}", ex.what());
             (void)bot.send_message(
                 chat_id,
                 std::string{"网易云音乐处理失败："} + ex.what() + "\n原链接仍保留在聊天中：" + url,
