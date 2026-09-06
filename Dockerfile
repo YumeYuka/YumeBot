@@ -20,7 +20,7 @@ RUN mkdir -p /opt/telegram-bot-api \
         cp /opt/telegram-bot-api/ld-musl-x86_64.so.1 /opt/telegram-bot-api/libc.musl-x86_64.so.1; \
     fi
 
-FROM debian:bookworm-slim
+FROM ubuntu:24.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -49,7 +49,7 @@ COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 
 RUN chmod +x /app/yumebot /app/docker-entrypoint.sh \
  && ldd /app/yumebot \
- && if ldd /app/yumebot | grep -q 'not found'; then \
+ && if ldd /app/yumebot | grep -E ' => not found$'; then \
         echo 'yumebot is missing shared libraries' >&2; \
         ldd /app/yumebot >&2; \
         exit 1; \

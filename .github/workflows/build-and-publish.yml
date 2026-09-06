@@ -21,7 +21,7 @@ env:
 jobs:
   build-linux:
     name: Build Linux x64 Binary
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
