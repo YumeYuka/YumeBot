@@ -2,6 +2,10 @@ export module common.util;
 
 import std;
 
+export auto sanitize_utf8(std::string_view text) -> std::string;
+
+export auto truncate_utf8(std::string_view text, std::size_t max_bytes) -> std::string;
+
 export auto escape_html(std::string_view text) -> std::string;
 
 export auto escape_html_attribute(std::string_view text) -> std::string;

@@ -12,15 +12,22 @@ import telegram.request;
 namespace {
 
 auto format_video_caption(const BilibiliDownloadedVideo &video) -> std::optional<std::string> {
-    if (video.summary.empty()) {
+    const auto title_source = truncate_utf8(video.title, 200);
+    const auto summary_source = truncate_utf8(video.summary, 500);
+    if (title_source.empty() && summary_source.empty()) {
         return std::nullopt;
     }
-    const auto title = escape_html(video.title.size() > 200 ? video.title.substr(0, 200) : video.title);
+    const auto title = escape_html(title_source);
     const auto source = escape_html_attribute(video.source_url);
-    const auto summary = escape_html(
-        video.summary.size() > 500 ? video.summary.substr(0, 497) + "..." : video.summary
-    );
-    return "<b>" + title + "</b>\n\n" + summary + "\n\n<a href=\"" + source + "\">Source</a>";
+    const auto summary = escape_html(summary_source);
+    std::string caption = "<b>" + title + "</b>";
+    if (!summary.empty()) {
+        caption += "\n\n" + summary;
+    }
+    if (!source.empty()) {
+        caption += "\n\n<a href=\"" + source + "\">Source</a>";
+    }
+    return caption;
 }
 
 }  // namespace

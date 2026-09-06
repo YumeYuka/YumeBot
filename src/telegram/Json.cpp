@@ -45,6 +45,36 @@ auto json_escape(std::string_view input) -> std::string {
     return out;
 }
 
+auto append_utf8(std::string &out, char32_t cp) -> void {
+    if (cp <= 0x7F) {
+        out += static_cast<char>(cp);
+        return;
+    }
+    if (cp <= 0x7FF) {
+        out += static_cast<char>(0xC0 | (cp >> 6));
+        out += static_cast<char>(0x80 | (cp & 0x3F));
+        return;
+    }
+    if (cp >= 0xD800 && cp <= 0xDFFF) {
+        append_utf8(out, 0xFFFD);
+        return;
+    }
+    if (cp <= 0xFFFF) {
+        out += static_cast<char>(0xE0 | (cp >> 12));
+        out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+        out += static_cast<char>(0x80 | (cp & 0x3F));
+        return;
+    }
+    if (cp <= 0x10FFFF) {
+        out += static_cast<char>(0xF0 | (cp >> 18));
+        out += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+        out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+        out += static_cast<char>(0x80 | (cp & 0x3F));
+        return;
+    }
+    append_utf8(out, 0xFFFD);
+}
+
 class Parser {
 public:
     explicit Parser(std::string_view text)
@@ -165,33 +195,44 @@ private:
                     out += '\t';
                     break;
                 case 'u': {
-                    if (i_ + 4 > text_.size()) {
-                        throw std::runtime_error("telegram json: bad unicode escape");
-                    }
-                    unsigned code = 0;
-                    for (int n = 0; n < 4; ++n) {
-                        const auto h = text_[i_++];
-                        code <<= 4;
-                        if (h >= '0' && h <= '9') {
-                            code += static_cast<unsigned>(h - '0');
-                        } else if (h >= 'a' && h <= 'f') {
-                            code += static_cast<unsigned>(h - 'a' + 10);
-                        } else if (h >= 'A' && h <= 'F') {
-                            code += static_cast<unsigned>(h - 'A' + 10);
-                        } else {
+                    auto parse_hex4 = [this]() -> unsigned {
+                        if (i_ + 4 > text_.size()) {
                             throw std::runtime_error("telegram json: bad unicode escape");
                         }
+                        unsigned code = 0;
+                        for (int n = 0; n < 4; ++n) {
+                            const auto h = text_[i_++];
+                            code <<= 4;
+                            if (h >= '0' && h <= '9') {
+                                code += static_cast<unsigned>(h - '0');
+                            } else if (h >= 'a' && h <= 'f') {
+                                code += static_cast<unsigned>(h - 'a' + 10);
+                            } else if (h >= 'A' && h <= 'F') {
+                                code += static_cast<unsigned>(h - 'A' + 10);
+                            } else {
+                                throw std::runtime_error("telegram json: bad unicode escape");
+                            }
+                        }
+                        return code;
+                    };
+                    const auto code = parse_hex4();
+                    if (code >= 0xD800 && code <= 0xDBFF
+                        && i_ + 6 <= text_.size()
+                        && text_[i_] == '\\'
+                        && text_[i_ + 1] == 'u') {
+                        const auto saved = i_;
+                        i_ += 2;
+                        const auto low = parse_hex4();
+                        if (low >= 0xDC00 && low <= 0xDFFF) {
+                            const auto cp = static_cast<char32_t>(
+                                0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00)
+                            );
+                            append_utf8(out, cp);
+                            break;
+                        }
+                        i_ = saved;
                     }
-                    if (code < 0x80) {
-                        out += static_cast<char>(code);
-                    } else if (code < 0x800) {
-                        out += static_cast<char>(0xc0 | (code >> 6));
-                        out += static_cast<char>(0x80 | (code & 0x3f));
-                    } else {
-                        out += static_cast<char>(0xe0 | (code >> 12));
-                        out += static_cast<char>(0x80 | ((code >> 6) & 0x3f));
-                        out += static_cast<char>(0x80 | (code & 0x3f));
-                    }
+                    append_utf8(out, static_cast<char32_t>(code));
                     break;
                 }
                 default:

@@ -23,16 +23,16 @@ auto format_file_size(std::int64_t bytes) -> std::string {
 
 auto format_song_caption(const NeteaseDownloadedSong &song, const std::string &bot_username) -> std::string {
     const auto name_link = "<a href=\"" + escape_html_attribute(song.track_url) + "\">"
-        + escape_html(song.name) + "</a>";
-    const auto album_line = song.album.empty() ? "" : "专辑：" + escape_html(song.album) + "\n";
+        + escape_html(sanitize_utf8(song.name)) + "</a>";
+    const auto album_line = song.album.empty() ? "" : "专辑：" + escape_html(sanitize_utf8(song.album)) + "\n";
     std::string info = format_file_size(song.size_bytes);
     if (song.bitrate_kbps > 0) {
         info += " · " + std::to_string(song.bitrate_kbps) + "kbps";
     }
     info += " · " + song.format;
     const auto via_line = bot_username.empty() ? "" : "\nvia @" + bot_username;
-    return "「" + name_link + "」- " + escape_html(song.artists) + "\n"
-        + album_line + info + "\n#网易云音乐 #" + escape_html(song.level) + via_line;
+    return "「" + name_link + "」- " + escape_html(sanitize_utf8(song.artists)) + "\n"
+        + album_line + info + "\n#网易云音乐 #" + escape_html(sanitize_utf8(song.level)) + via_line;
 }
 
 }  // namespace

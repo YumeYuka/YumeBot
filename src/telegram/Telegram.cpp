@@ -1,6 +1,7 @@
 module telegram;
 
 import std;
+import common.util;
 import config;
 import http;
 import http.response;
@@ -125,7 +126,18 @@ auto log_file_send_result(
 }
 
 auto json_header() -> std::array<std::pair<std::string, std::string>, 1> {
-    return {std::pair<std::string, std::string>{"Content-Type", "application/json"}};
+    return {std::pair<std::string, std::string>{"Content-Type", "application/json; charset=utf-8"}};
+}
+
+auto utf8_or_omit(const std::optional<std::string> &value) -> std::optional<std::string> {
+    if (!value.has_value()) {
+        return std::nullopt;
+    }
+    auto clean = sanitize_utf8(*value);
+    if (clean.empty()) {
+        return std::nullopt;
+    }
+    return clean;
 }
 
 }  // namespace
@@ -249,12 +261,12 @@ auto TelegramBotClient::send_media_file(
         JsonValue::Object object;
         json_put(object, "chat_id", chat_id);
         json_put(object, std::string{file_field}, file_uri);
-        json_put(object, "caption", caption);
+        json_put(object, "caption", utf8_or_omit(caption));
         json_put(object, "parse_mode", parse_mode);
         json_put(object, "message_thread_id", message_thread_id);
         json_put(object, "duration", duration_seconds);
-        json_put(object, "title", title);
-        json_put(object, "performer", performer);
+        json_put(object, "title", utf8_or_omit(title));
+        json_put(object, "performer", utf8_or_omit(performer));
         if (method == "sendVideo") {
             json_put(object, "supports_streaming", true);
         }
@@ -280,7 +292,9 @@ auto TelegramBotClient::send_media_file(
         .file_path = std::string{file_path},
     });
     if (caption.has_value()) {
-        parts.push_back(HttpMultipartPart{.name = "caption", .value = *caption, .file_path = {}});
+        if (auto clean = utf8_or_omit(caption); clean.has_value()) {
+            parts.push_back(HttpMultipartPart{.name = "caption", .value = *clean, .file_path = {}});
+        }
     }
     if (parse_mode.has_value()) {
         parts.push_back(HttpMultipartPart{.name = "parse_mode", .value = *parse_mode, .file_path = {}});
@@ -300,10 +314,14 @@ auto TelegramBotClient::send_media_file(
         });
     }
     if (title.has_value()) {
-        parts.push_back(HttpMultipartPart{.name = "title", .value = *title, .file_path = {}});
+        if (auto clean = utf8_or_omit(title); clean.has_value()) {
+            parts.push_back(HttpMultipartPart{.name = "title", .value = *clean, .file_path = {}});
+        }
     }
     if (performer.has_value()) {
-        parts.push_back(HttpMultipartPart{.name = "performer", .value = *performer, .file_path = {}});
+        if (auto clean = utf8_or_omit(performer); clean.has_value()) {
+            parts.push_back(HttpMultipartPart{.name = "performer", .value = *clean, .file_path = {}});
+        }
     }
     if (thumbnail_path.has_value()) {
         parts.push_back(HttpMultipartPart{.name = "thumbnail", .value = {}, .file_path = *thumbnail_path});
