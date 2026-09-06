@@ -15,21 +15,22 @@ RUN mkdir -p /opt/telegram-bot-api \
 FROM debian:bookworm-slim
 
 # yumebot 在 CI 上用 LLVM libc++ 编译，运行时需要 libc++abi.so.1
-RUN apt-get update && apt-get install -y --no-install-recommends wget gnupg ca-certificates \
-    && wget -q https://apt.llvm.org/llvm.sh -O /tmp/llvm.sh \
-    && chmod +x /tmp/llvm.sh \
-    && /tmp/llvm.sh 23 \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        ffmpeg \
+        gnupg \
+        libcurl4 \
+        libunwind1 \
+        wget \
+    && wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+        | gpg --dearmor -o /usr/share/keyrings/llvm-archive-keyring.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/llvm-archive-keyring.gpg] http://apt.llvm.org/bookworm/ llvm-toolchain-bookworm-23 main" \
+        > /etc/apt/sources.list.d/llvm-23.list \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
         libc++1-23 \
         libc++abi1-23 \
-        libunwind1 \
-    && rm -rf /var/lib/apt/lists/* /tmp/llvm.sh
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    curl \
-    ffmpeg \
-    libcurl4 \
     && rm -rf /var/lib/apt/lists/*
 
 # telegram-bot-api 二进制是 musl 链接的：需要 Alpine 的 ld-musl 与 libc.musl，
