@@ -53,7 +53,7 @@ if [[ "$(uname -s)" == Linux ]]; then
     fi
     CMAKE_ARGS+=(
         "-DCMAKE_CXX_FLAGS=-stdlib=libc++"
-        "-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++ -lc++abi"
+        "-DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++ -fuse-ld=lld -Wl,-Bstatic -lc++ -lc++abi -lunwind -Wl,-Bdynamic -lpthread -ldl -lm"
         "-DCMAKE_CXX_STDLIB_MODULES_JSON=${MODULES_JSON}"
     )
     echo "Using libc++ modules metadata: ${MODULES_JSON}"
