@@ -30,15 +30,25 @@ if [ ! -f /app/config.conf ]; then
     } >/app/config.conf
 fi
 
-# 可选：容器内启动本地 telegram-bot-api（上传上限 50MB → 2GB）。
+# 可选：同一容器内启动本地 telegram-bot-api（上传上限 50MB → 2GB）。
+# yumebot 和 telegram-bot-api 共享 /app/data，不需要再拆第二个容器做路径映射。
 # 需要 TELEGRAM_API_ID / TELEGRAM_API_HASH（https://my.telegram.org/apps 申请）。
+if [ -z "${TELEGRAM_API_ID:-}" ] && [ -f /app/config.conf ]; then
+    TELEGRAM_API_ID="$(grep -E '^(app_id|api_id)=' /app/config.conf | tail -1 | cut -d= -f2- || true)"
+fi
+if [ -z "${TELEGRAM_API_HASH:-}" ] && [ -f /app/config.conf ]; then
+    TELEGRAM_API_HASH="$(grep '^api_hash=' /app/config.conf | tail -1 | cut -d= -f2- || true)"
+fi
+
 if [ -n "${TELEGRAM_API_ID:-}" ] && [ -n "${TELEGRAM_API_HASH:-}" ]; then
     TELEGRAM_API_PORT="${TELEGRAM_API_PORT:-8081}"
     export TELEGRAM_API_BASE_URL="${TELEGRAM_API_BASE_URL:-http://127.0.0.1:${TELEGRAM_API_PORT}}"
 
     mkdir -p /app/data/telegram-bot-api /tmp/telegram-bot-api-temp
-    echo "Starting local telegram-bot-api on port ${TELEGRAM_API_PORT}..."
+    echo "Starting local telegram-bot-api --local on port ${TELEGRAM_API_PORT}..."
     telegram-bot-api --local \
+        --api-id="${TELEGRAM_API_ID}" \
+        --api-hash="${TELEGRAM_API_HASH}" \
         --http-port="${TELEGRAM_API_PORT}" \
         --dir=/app/data/telegram-bot-api \
         --temp-dir=/tmp/telegram-bot-api-temp \
