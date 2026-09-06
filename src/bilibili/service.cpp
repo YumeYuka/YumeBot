@@ -7,175 +7,173 @@ import std;
 import telegram.json;
 
 namespace {
+    constexpr std::string_view k_bilibili_origin = "https://www.bilibili.com";
+    constexpr std::string_view k_user_agent =
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    constexpr int k_max_video_duration_seconds = 10 * 60;
+    constexpr int k_login_poll_delay_ms = 2000;
+    constexpr int k_login_timeout_ms = 180000;
+    constexpr int k_max_quality = 120;
+    constexpr int k_dash_fnval = 4048;
 
-constexpr std::string_view k_bilibili_origin = "https://www.bilibili.com";
-constexpr std::string_view k_user_agent =
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-constexpr int k_max_video_duration_seconds = 10 * 60;
-constexpr int k_login_poll_delay_ms = 2000;
-constexpr int k_login_timeout_ms = 180000;
-constexpr int k_max_quality = 120;
-constexpr int k_dash_fnval = 4048;
+    struct BilibiliCredentials {
+        std::string sessdata{};
+        std::string bili_jct{};
+        std::string dede_user_id{};
+        std::string dede_user_id_ck_md5{};
 
-struct BilibiliCredentials {
-    std::string sessdata{};
-    std::string bili_jct{};
-    std::string dede_user_id{};
-    std::string dede_user_id_ck_md5{};
-
-    [[nodiscard]] auto as_cookie_header() const -> std::string {
-        std::string cookie;
-        auto append = [&](std::string_view name, const std::string &value) {
-            if (value.empty()) {
-                return;
-            }
-            if (!cookie.empty()) {
-                cookie += "; ";
-            }
-            cookie += std::string{name} + "=" + value;
-        };
-        append("SESSDATA", sessdata);
-        append("bili_jct", bili_jct);
-        append("DedeUserID", dede_user_id);
-        append("DedeUserID__ckMd5", dede_user_id_ck_md5);
-        return cookie;
-    }
-};
-
-struct BilibiliPage {
-    std::int64_t cid{};
-    std::string title{};
-    int duration_seconds{0};
-};
-
-struct VideoStreams {
-    std::string video_url{};
-    std::optional<std::string> audio_url{};
-};
-
-auto bilibili_headers(const std::string &cookie = {}) -> std::vector<std::pair<std::string, std::string>> {
-    std::vector<std::pair<std::string, std::string>> headers = {
-        {"User-Agent", std::string{k_user_agent}},
-        {"Referer", std::string{k_bilibili_origin}},
-        {"Origin", std::string{k_bilibili_origin}},
+        [[nodiscard]] auto as_cookie_header() const -> std::string {
+            std::string cookie;
+            auto append = [&](std::string_view name, const std::string &value) {
+                if (value.empty()) {
+                    return;
+                }
+                if (!cookie.empty()) {
+                    cookie += "; ";
+                }
+                cookie += std::string{name} + "=" + value;
+            };
+            append("SESSDATA", sessdata);
+            append("bili_jct", bili_jct);
+            append("DedeUserID", dede_user_id);
+            append("DedeUserID__ckMd5", dede_user_id_ck_md5);
+            return cookie;
+        }
     };
-    if (!cookie.empty()) {
-        headers.emplace_back("Cookie", cookie);
-    }
-    return headers;
-}
 
-auto load_credentials(const std::filesystem::path &path) -> BilibiliCredentials {
-    if (!std::filesystem::exists(path)) {
+    struct BilibiliPage {
+        std::int64_t cid{};
+        std::string title{};
+        int duration_seconds{0};
+    };
+
+    struct VideoStreams {
+        std::string video_url{};
+        std::optional<std::string> audio_url{};
+    };
+
+    auto bilibili_headers(const std::string &cookie = {}) -> std::vector<std::pair<std::string, std::string> > {
+        std::vector<std::pair<std::string, std::string> > headers = {
+            {"User-Agent", std::string{k_user_agent}},
+            {"Referer", std::string{k_bilibili_origin}},
+            {"Origin", std::string{k_bilibili_origin}},
+        };
+        if (!cookie.empty()) {
+            headers.emplace_back("Cookie", cookie);
+        }
+        return headers;
+    }
+
+    auto load_credentials(const std::filesystem::path &path) -> BilibiliCredentials {
+        if (!std::filesystem::exists(path)) {
+            return {};
+        }
+        std::ifstream in{path};
+        const std::string text{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+        const auto json = JsonValue::parse(text);
+        return BilibiliCredentials{
+            .sessdata = json_string(json, "SESSDATA").value_or(""),
+            .bili_jct = json_string(json, "bili_jct").value_or(""),
+            .dede_user_id = json_string(json, "DedeUserID").value_or(""),
+            .dede_user_id_ck_md5 = json_string(json, "DedeUserID__ckMd5").value_or(""),
+        };
+    }
+
+    auto save_credentials(const std::filesystem::path &path, const BilibiliCredentials &credentials) -> void {
+        std::filesystem::create_directories(path.parent_path());
+        JsonValue::Object object;
+        json_put(object, "SESSDATA", credentials.sessdata);
+        json_put(object, "bili_jct", credentials.bili_jct);
+        json_put(object, "DedeUserID", credentials.dede_user_id);
+        json_put(object, "DedeUserID__ckMd5", credentials.dede_user_id_ck_md5);
+        std::ofstream out{path};
+        out << JsonValue::object(std::move(object)).dump();
+    }
+
+    auto parse_response_data(const std::string &body, std::string_view operation) -> JsonValue {
+        const auto json = JsonValue::parse(body);
+        const auto code = json_i64(json, "code").value_or(-1);
+        if (code != 0) {
+            const auto message = json_string(json, "message").value_or("未知错误");
+            throw std::runtime_error(
+                std::string{operation} + "失败（" + std::to_string(code) + "）：" + message
+            );
+        }
+        if (const auto *data = json.get("data")) {
+            return *data;
+        }
+        throw std::runtime_error(std::string{operation} + "响应缺少 data。");
+    }
+
+    auto normalize_bvid(std::string_view bvid) -> std::string {
+        auto value = std::string{bvid};
+        if (value.size() >= 2 && (value[0] == 'B' || value[0] == 'b') && (value[1] == 'V' || value[1] == 'v')) {
+            value[0] = 'B';
+            value[1] = 'V';
+        }
+        return value;
+    }
+
+    auto video_target_params(std::string_view url) -> std::vector<std::pair<std::string, std::string> > {
+        static const std::regex bvid_pattern{R"(BV[0-9A-Za-z]{10})", std::regex::icase};
+        static const std::regex avid_pattern{R"(av(\d+))", std::regex::icase};
+        std::match_results<std::string_view::const_iterator> match;
+        if (std::regex_search(url.begin(), url.end(), match, bvid_pattern)) {
+            return {{"bvid", normalize_bvid(match[0].str())}};
+        }
+        if (std::regex_search(url.begin(), url.end(), match, avid_pattern)) {
+            return {{"aid", match[1].str()}};
+        }
+        throw std::runtime_error("无法识别 B 站视频链接。");
+    }
+
+    auto append_query(std::string &url, const std::vector<std::pair<std::string, std::string> > &params) -> void {
+        for (const auto &[key, value]: params) {
+            url += url.contains('?') ? '&' : '?';
+            url += key + '=' + value;
+        }
+    }
+
+    auto get_json(
+        const HttpClient &http,
+        std::string url,
+        const std::vector<std::pair<std::string, std::string> > &params,
+        const std::string &cookie
+    ) -> JsonValue {
+        append_query(url, params);
+        const auto response = http.request(HttpRequestOptions{
+            .url = url,
+            .headers = bilibili_headers(cookie),
+        });
+        if (!response.ok()) {
+            throw std::runtime_error(response.error.empty() ? "B站接口请求失败" : response.error);
+        }
+        return parse_response_data(response.body, "B站接口请求");
+    }
+
+    auto run_command(std::string_view command) -> void {
+        if (std::system(std::string{command}.c_str()) != 0) {
+            throw std::runtime_error("媒体处理失败。");
+        }
+    }
+
+    auto extract_cookie(
+        const std::vector<std::pair<std::string, std::string> > &headers,
+        std::string_view name
+    ) -> std::string {
+        const auto pattern = std::regex{std::string{"^"} + std::string{name} + "=([^;]+)"};
+        for (const auto &[key, value]: headers) {
+            if (key != "Set-Cookie" && key != "set-cookie") {
+                continue;
+            }
+            if (std::match_results<std::string::const_iterator> match;
+                std::regex_search(value.begin(), value.end(), match, pattern)) {
+                return match[1].str();
+            }
+        }
         return {};
     }
-    std::ifstream in{path};
-    const std::string text{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
-    const auto json = JsonValue::parse(text);
-    return BilibiliCredentials{
-        .sessdata = json_string(json, "SESSDATA").value_or(""),
-        .bili_jct = json_string(json, "bili_jct").value_or(""),
-        .dede_user_id = json_string(json, "DedeUserID").value_or(""),
-        .dede_user_id_ck_md5 = json_string(json, "DedeUserID__ckMd5").value_or(""),
-    };
-}
-
-auto save_credentials(const std::filesystem::path &path, const BilibiliCredentials &credentials) -> void {
-    std::filesystem::create_directories(path.parent_path());
-    JsonValue::Object object;
-    json_put(object, "SESSDATA", credentials.sessdata);
-    json_put(object, "bili_jct", credentials.bili_jct);
-    json_put(object, "DedeUserID", credentials.dede_user_id);
-    json_put(object, "DedeUserID__ckMd5", credentials.dede_user_id_ck_md5);
-    std::ofstream out{path};
-    out << JsonValue::object(std::move(object)).dump();
-}
-
-auto parse_response_data(const std::string &body, std::string_view operation) -> JsonValue {
-    const auto json = JsonValue::parse(body);
-    const auto code = json_i64(json, "code").value_or(-1);
-    if (code != 0) {
-        const auto message = json_string(json, "message").value_or("未知错误");
-        throw std::runtime_error(
-            std::string{operation} + "失败（" + std::to_string(code) + "）：" + message
-        );
-    }
-    if (const auto *data = json.get("data")) {
-        return *data;
-    }
-    throw std::runtime_error(std::string{operation} + "响应缺少 data。");
-}
-
-auto normalize_bvid(std::string_view bvid) -> std::string {
-    auto value = std::string{bvid};
-    if (value.size() >= 2 && (value[0] == 'B' || value[0] == 'b') && (value[1] == 'V' || value[1] == 'v')) {
-        value[0] = 'B';
-        value[1] = 'V';
-    }
-    return value;
-}
-
-auto video_target_params(std::string_view url) -> std::vector<std::pair<std::string, std::string>> {
-    static const std::regex bvid_pattern{R"(BV[0-9A-Za-z]{10})", std::regex::icase};
-    static const std::regex avid_pattern{R"(av(\d+))", std::regex::icase};
-    std::match_results<std::string_view::const_iterator> match;
-    if (std::regex_search(url.begin(), url.end(), match, bvid_pattern)) {
-        return {{"bvid", normalize_bvid(match[0].str())}};
-    }
-    if (std::regex_search(url.begin(), url.end(), match, avid_pattern)) {
-        return {{"aid", match[1].str()}};
-    }
-    throw std::runtime_error("无法识别 B 站视频链接。");
-}
-
-auto append_query(std::string &url, const std::vector<std::pair<std::string, std::string>> &params) -> void {
-    for (const auto &[key, value] : params) {
-        url += url.contains('?') ? '&' : '?';
-        url += key + '=' + value;
-    }
-}
-
-auto get_json(
-    const HttpClient &http,
-    std::string url,
-    const std::vector<std::pair<std::string, std::string>> &params,
-    const std::string &cookie
-) -> JsonValue {
-    append_query(url, params);
-    const auto response = http.request(HttpRequestOptions{
-        .url = url,
-        .headers = bilibili_headers(cookie),
-    });
-    if (!response.ok()) {
-        throw std::runtime_error(response.error.empty() ? "B站接口请求失败" : response.error);
-    }
-    return parse_response_data(response.body, "B站接口请求");
-}
-
-auto run_command(std::string_view command) -> void {
-    if (std::system(std::string{command}.c_str()) != 0) {
-        throw std::runtime_error("媒体处理失败。");
-    }
-}
-
-auto extract_cookie(
-    const std::vector<std::pair<std::string, std::string>> &headers,
-    std::string_view name
-) -> std::string {
-    const auto pattern = std::regex{std::string{"^"} + std::string{name} + "=([^;]+)"};
-    for (const auto &[key, value] : headers) {
-        if (key != "Set-Cookie" && key != "set-cookie") {
-            continue;
-        }
-        if (std::match_results<std::string::const_iterator> match;
-            std::regex_search(value.begin(), value.end(), match, pattern)) {
-            return match[1].str();
-        }
-    }
-    return {};
-}
-
-}  // namespace
+} // namespace
 
 BilibiliService::BilibiliService() = default;
 
@@ -222,7 +220,7 @@ auto BilibiliService::wait_for_login(const std::string &qr_code_key) const -> Bi
         std::this_thread::sleep_for(std::chrono::milliseconds{k_login_poll_delay_ms});
         const auto response = http_.request(HttpRequestOptions{
             .url = "https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key="
-                + encode_url_component(qr_code_key),
+                   + encode_url_component(qr_code_key),
             .headers = bilibili_headers(),
         });
         if (!response.ok()) {
@@ -385,7 +383,7 @@ auto BilibiliService::download_video(std::string_view source_url) const -> Bilib
 
     if (!streams.audio_url.has_value()) {
         run_command("ffmpeg -nostdin -y -loglevel error -i " + shell_quote(video_part.string())
-            + " -map 0:v:0 -map 0:a:0? -c copy -movflags +faststart " + shell_quote(output_path.string()));
+                    + " -map 0:v:0 -map 0:a:0? -c copy -movflags +faststart " + shell_quote(output_path.string()));
         delete_downloaded_file(video_part);
         return BilibiliDownloadedVideo{
             .title = title,
@@ -401,9 +399,9 @@ auto BilibiliService::download_video(std::string_view source_url) const -> Bilib
         throw std::runtime_error("B站音频流下载失败");
     }
     run_command("ffmpeg -nostdin -y -loglevel error -i " + shell_quote(video_part.string())
-        + " -i " + shell_quote(audio_part.string())
-        + " -map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a 192k -shortest -movflags +faststart "
-        + shell_quote(output_path.string()));
+                + " -i " + shell_quote(audio_part.string())
+                + " -map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a 192k -shortest -movflags +faststart "
+                + shell_quote(output_path.string()));
     delete_downloaded_file(video_part);
     delete_downloaded_file(audio_part);
 

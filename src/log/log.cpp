@@ -33,6 +33,7 @@ auto Log::LogMessage(const LogLevel level, std::string_view message) -> void {
     const auto local = GetLocalTime();
 
     std::println(
+        std::cerr,
         "[{:02}-{:02} {:02}:{:02}:{:02}] ({}) {}",
         local.tm_mon + 1,
         local.tm_mday,
