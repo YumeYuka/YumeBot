@@ -1,0 +1,10 @@
+.git/
+.github/
+.idea/
+.cursor/
+.vscode/
+build/
+out/
+config.conf
+.env
+*.conf

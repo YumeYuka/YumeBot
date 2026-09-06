@@ -1,0 +1,22 @@
+# YumeBot
+
+```dockerfile
+services:
+  yumebot:
+    image: ghcr.io/yumeyuka/yumebot:latest
+    pull_policy: always
+    container_name: yumebot
+    restart: unless-stopped
+    working_dir: /app
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN:-}
+      MINI_APP_URL: ${MINI_APP_URL:-}
+      BILIBILI_ADMIN_ID: ${BILIBILI_ADMIN_ID:-}
+      NETEASE_MUSIC_U: ${NETEASE_MUSIC_U:-}
+      # 可选：同时设置 ID 和 HASH 即在容器内启动本地 telegram-bot-api（上传上限提升至 2GB）
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID:-}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:-}
+      TELEGRAM_API_BASE_URL: ${TELEGRAM_API_BASE_URL:-}
+    volumes:
+      - ./data:/app/data
+```

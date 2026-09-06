@@ -1,4 +1,4 @@
-﻿export module meta;
+export module meta;
 
 import std;
 
@@ -9,7 +9,7 @@ export struct Meta {
 
     static constexpr auto author = "YumeYuka"sv;
 
-    static constexpr auto description = "A Telegram bot for verifying new group members via a Telegram Mini App."sv;
+    static constexpr auto description = "YumeBot - Telegram group verification, NetEase and Bilibili media bot."sv;
 
     static constexpr auto license = "BSD-3-Clause license"sv;
 

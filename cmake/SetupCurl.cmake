@@ -4,7 +4,7 @@
 
 include(FetchContent)
 
-function(yumemeta_setup_curl)
+function(yumebot_setup_curl)
     set(CURL_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libs/curl")
 
     set(BUILD_CURL_EXE OFF CACHE BOOL "" FORCE)
