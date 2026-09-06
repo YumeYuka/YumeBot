@@ -1,4 +1,4 @@
-name: Multi-Platform Build and Publish
+name: Linux Build and Publish
 
 on:
   push:
@@ -16,58 +16,45 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: yumeyuka/yumebot
+  LLVM_VERSION: 23
 
 jobs:
-  build-matrix:
-    name: Build Native Binary (${{ matrix.name }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: linux-x64
-            os: ubuntu-latest
-            artifact_name: yumebot-linux-x64
-            install_deps: |
-              sudo apt-get update
-              sudo apt-get install -y ninja-build wget libssl-dev python3-pip
-              python3 -m pip install "cmake>=4.3"
-              wget -q https://apt.llvm.org/llvm.sh
-              chmod +x llvm.sh
-              sudo ./llvm.sh 23
-              sudo apt-get install -y clang-23 lld-23
-
-          - name: macos-arm64
-            os: macos-latest
-            artifact_name: yumebot-macos
-            install_deps: |
-              brew update
-              brew install llvm@23 ninja openssl@3
-              pip3 install "cmake>=4.3"
-              echo "$(brew --prefix llvm@23)/bin" >> "$GITHUB_PATH"
+  build-linux:
+    name: Build Linux x64 Binary
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up CMake
+        uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: '4.4.0'
+
+      - name: Set up Clang
+        uses: egor-tensin/setup-clang@v2
+        with:
+          version: ${{ env.LLVM_VERSION }}
+
       - name: Install build dependencies
-        run: ${{ matrix.install_deps }}
+        run: sudo apt-get update && sudo apt-get install -y ninja-build libssl-dev libc++-${{ env.LLVM_VERSION }}-dev libc++abi-${{ env.LLVM_VERSION }}-dev
 
       - name: Build release binary
         run: |
           chmod +x ./scripts/build-release.sh
-          ./scripts/build-release.sh "${{ matrix.artifact_name }}"
+          ./scripts/build-release.sh yumebot-linux-x64
 
       - name: Upload Binary Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: dist/${{ matrix.artifact_name }}
+          name: yumebot-linux-x64
+          path: dist/yumebot-linux-x64
           if-no-files-found: error
 
   publish-docker:
-    name: Build & Publish Docker Image (Linux x64)
-    needs: build-matrix
+    name: Build & Publish Docker Image
+    needs: build-linux
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -125,7 +112,7 @@ jobs:
   create-release:
     name: Create GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build-matrix
+    needs: build-linux
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -134,11 +121,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download all artifacts
+      - name: Download Linux binary
         uses: actions/download-artifact@v4
         with:
+          name: yumebot-linux-x64
           path: release-assets
-          merge-multiple: true
 
       - name: Create Release
         uses: softprops/action-gh-release@v2

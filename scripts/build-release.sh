@@ -9,7 +9,7 @@ ARTIFACT_NAME="${1:-yumebot-linux-x64}"
 mkdir -p "${DIST_DIR}"
 
 detect_clang() {
-    for candidate in clang++-23 clang++-22 clang++; do
+    for candidate in clang++ clang++-23 clang++-22; do
         if command -v "${candidate}" >/dev/null 2>&1; then
             echo "${candidate}"
             return 0
