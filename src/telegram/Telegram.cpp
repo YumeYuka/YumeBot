@@ -140,6 +140,11 @@ auto utf8_or_omit(const std::optional<std::string> &value) -> std::optional<std:
     return clean;
 }
 
+auto is_utf8_rejection(const TelegramResult<Message> &result) -> bool {
+    const auto text = result.error_text();
+    return text.find("UTF-8") != std::string::npos || text.find("utf-8") != std::string::npos;
+}
+
 }  // namespace
 
 TelegramBotClient::TelegramBotClient(Config config)
@@ -248,20 +253,22 @@ auto TelegramBotClient::send_media_file(
         if (thumbnail_path.has_value()) {
             thumbnail_uri = to_file_uri(resolve_local_file_path(*thumbnail_path));
         }
+        const auto clean_caption = utf8_or_omit(caption);
         Log::Info(
-            "upload {} via local Bot API endpoint={} path={} uri={} size={}",
+            "upload {} via local Bot API endpoint={} path={} uri={} size={} caption_bytes={}",
             method,
             upload_api_base_url_,
             absolute_path,
             file_uri,
             std::filesystem::exists(absolute_path)
                 ? std::to_string(std::filesystem::file_size(absolute_path))
-                : std::string{"missing"}
+                : std::string{"missing"},
+            clean_caption.has_value() ? std::to_string(clean_caption->size()) : std::string{"0"}
         );
         JsonValue::Object object;
         json_put(object, "chat_id", chat_id);
         json_put(object, std::string{file_field}, file_uri);
-        json_put(object, "caption", utf8_or_omit(caption));
+        json_put(object, "caption", clean_caption);
         json_put(object, "parse_mode", parse_mode);
         json_put(object, "message_thread_id", message_thread_id);
         json_put(object, "duration", duration_seconds);
@@ -274,9 +281,22 @@ auto TelegramBotClient::send_media_file(
             json_put(object, "thumbnail", *thumbnail_uri);
         }
         const auto headers = json_header();
-        const auto http = http_.post(file_method_url(method), JsonValue::object(std::move(object)).dump(), headers);
-        auto result = envelope_to_result<Message>(http, [](const JsonValue &json) { return Message::from_json(json); });
-        log_file_send_result(method, upload_api_base_url_, http, result);
+        auto post_object = [&](const JsonValue::Object &body) {
+            const auto http = http_.post(file_method_url(method), JsonValue::object(body).dump(), headers);
+            auto result = envelope_to_result<Message>(
+                http,
+                [](const JsonValue &json) { return Message::from_json(json); }
+            );
+            log_file_send_result(method, upload_api_base_url_, http, result);
+            return result;
+        };
+        auto result = post_object(object);
+        if (!result.succeeded() && clean_caption.has_value() && is_utf8_rejection(result)) {
+            Log::Warn("retry {} without caption after UTF-8 rejection", method);
+            object.erase("caption");
+            object.erase("parse_mode");
+            result = post_object(object);
+        }
         return result;
     }
 

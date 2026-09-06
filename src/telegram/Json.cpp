@@ -4,43 +4,106 @@ import std;
 
 namespace {
 
+auto utf8_step(std::string_view text, std::size_t i) -> std::size_t {
+    if (i >= text.size()) {
+        return 0;
+    }
+    const auto lead = static_cast<unsigned char>(text[i]);
+    std::size_t need = 0;
+    if (lead < 0x80) {
+        return 1;
+    }
+    if ((lead & 0xE0) == 0xC0 && lead >= 0xC2) {
+        need = 2;
+    } else if ((lead & 0xF0) == 0xE0) {
+        need = 3;
+    } else if ((lead & 0xF8) == 0xF0 && lead <= 0xF4) {
+        need = 4;
+    } else {
+        return 0;
+    }
+    if (i + need > text.size()) {
+        return 0;
+    }
+    for (std::size_t n = 1; n < need; ++n) {
+        if ((static_cast<unsigned char>(text[i + n]) & 0xC0) != 0x80) {
+            return 0;
+        }
+    }
+    if (need == 3) {
+        const auto b1 = static_cast<unsigned char>(text[i + 1]);
+        if (lead == 0xE0 && b1 < 0xA0) {
+            return 0;
+        }
+        if (lead == 0xED && b1 >= 0xA0) {
+            return 0;
+        }
+    }
+    if (need == 4) {
+        const auto b1 = static_cast<unsigned char>(text[i + 1]);
+        if (lead == 0xF0 && b1 < 0x90) {
+            return 0;
+        }
+        if (lead == 0xF4 && b1 >= 0x90) {
+            return 0;
+        }
+    }
+    return need;
+}
+
 auto json_escape(std::string_view input) -> std::string {
     std::string out;
     out.reserve(input.size() + 8);
-    for (const unsigned char c : input) {
+    constexpr char hex[] = "0123456789abcdef";
+    for (std::size_t i = 0; i < input.size();) {
+        const auto c = static_cast<unsigned char>(input[i]);
         switch (c) {
             case '"':
                 out += "\\\"";
-                break;
+                ++i;
+                continue;
             case '\\':
                 out += "\\\\";
-                break;
+                ++i;
+                continue;
             case '\b':
                 out += "\\b";
-                break;
+                ++i;
+                continue;
             case '\f':
                 out += "\\f";
-                break;
+                ++i;
+                continue;
             case '\n':
                 out += "\\n";
-                break;
+                ++i;
+                continue;
             case '\r':
                 out += "\\r";
-                break;
+                ++i;
+                continue;
             case '\t':
                 out += "\\t";
-                break;
+                ++i;
+                continue;
             default:
-                if (c < 0x20) {
-                    constexpr char hex[] = "0123456789abcdef";
-                    out += "\\u00";
-                    out += hex[c >> 4];
-                    out += hex[c & 0x0f];
-                } else {
-                    out += static_cast<char>(c);
-                }
                 break;
         }
+        if (c < 0x20) {
+            out += "\\u00";
+            out += hex[c >> 4];
+            out += hex[c & 0x0f];
+            ++i;
+            continue;
+        }
+        const auto len = utf8_step(input, i);
+        if (len == 0) {
+            out += "\\ufffd";
+            ++i;
+            continue;
+        }
+        out.append(input.substr(i, len));
+        i += len;
     }
     return out;
 }
