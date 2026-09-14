@@ -106,6 +106,40 @@ auto HttpClient::request(const HttpRequestOptions &options) const -> HttpRespons
     return perform(easy);
 }
 
+namespace {
+
+constexpr long k_download_buffer_size = 512 * 1024;
+constexpr long k_low_speed_bytes_per_second = 1024;
+constexpr long k_low_speed_seconds = 60;
+
+struct DownloadWriteContext {
+    std::ofstream *out{nullptr};
+};
+
+auto apply_download_transfer_options(CURL *curl) -> void {
+    curl_easy_setopt(curl, CURLOPT_BUFFERSIZE, k_download_buffer_size);
+    curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 1L);
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, k_low_speed_bytes_per_second);
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, k_low_speed_seconds);
+}
+
+auto write_download_chunk(
+    char *contents,
+    std::size_t size,
+    std::size_t nmemb,
+    void *userp
+) -> std::size_t {
+    const auto total = size * nmemb;
+    auto *const ctx = static_cast<DownloadWriteContext *>(userp);
+    ctx->out->write(contents, static_cast<std::streamsize>(total));
+    if (!ctx->out->good()) {
+        return 0;
+    }
+    return total;
+}
+
+}  // namespace
+
 auto HttpClient::download(
     std::string_view url,
     const std::filesystem::path &output_path,
@@ -126,12 +160,10 @@ auto HttpClient::download(
     CURL *const curl = easy.get();
     curl_easy_setopt(curl, CURLOPT_URL, url_str.c_str());
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, +[](char *contents, std::size_t size, std::size_t nmemb, void *userp) -> std::size_t {
-        const auto total = size * nmemb;
-        static_cast<std::ofstream *>(userp)->write(contents, static_cast<std::streamsize>(total));
-        return total;
-    });
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &out);
+    apply_download_transfer_options(curl);
+    DownloadWriteContext write_ctx{.out = &out};
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_download_chunk);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &write_ctx);
 
     for (const auto &[key, value] : headers) {
         header_list.append(key + ": " + value);
@@ -153,6 +185,12 @@ auto HttpClient::download(
     curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &effective_url);
     if (effective_url != nullptr) {
         response.effective_url = effective_url;
+    }
+    if (!response.ok()) {
+        if (response.error.empty()) {
+            response.error = "HTTP " + std::to_string(response.status_code);
+        }
+        std::filesystem::remove(output_path);
     }
     return response;
 }
