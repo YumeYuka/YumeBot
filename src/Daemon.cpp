@@ -200,10 +200,6 @@ auto handle_update(BotRuntime &runtime, const Update &update) -> void {
         return;
     }
 
-    if (runtime.verification.handle_group_message(runtime.bot, message)) {
-        return;
-    }
-
     if (message.web_app_data.has_value()) {
         runtime.verification.handle_web_app_data(runtime.bot, message);
         return;

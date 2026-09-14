@@ -126,12 +126,7 @@ auto HttpClient::download(
     CURL *const curl = easy.get();
     curl_easy_setopt(curl, CURLOPT_URL, url_str.c_str());
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, +[](
-        char *contents,
-        std::size_t size,
-        std::size_t nmemb,
-        void *userp
-    ) -> std::size_t {
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, +[](char *contents, std::size_t size, std::size_t nmemb, void *userp) -> std::size_t {
         const auto total = size * nmemb;
         static_cast<std::ofstream *>(userp)->write(contents, static_cast<std::streamsize>(total));
         return total;

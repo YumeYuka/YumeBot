@@ -25,8 +25,6 @@ public:
 
     auto handle_left_chat_member(TelegramBotClient &bot, const Message &message) -> void;
 
-    auto handle_group_message(TelegramBotClient &bot, const Message &message) -> bool;
-
     auto handle_callback_query(TelegramBotClient &bot, const CallbackQuery &query) -> void;
 
     auto handle_web_app_data(TelegramBotClient &bot, const Message &message) -> void;

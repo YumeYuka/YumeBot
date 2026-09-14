@@ -273,10 +273,6 @@ auto build_keyword_haystack(const ProfileScreenInput &input, std::string_view di
 
 }  // namespace
 
-auto ProfileScreen::contains_keyword(std::string_view text) -> bool {
-    return contains_scam_keyword(text);
-}
-
 auto ProfileScreen::evaluate(const ProfileScreenInput &input) -> ProfileScreenResult {
     if (!input.has_avatar) {
         return ProfileScreenResult{.blocked = true, .reason = "missing avatar"};

@@ -463,41 +463,6 @@ auto VerificationService::handle_left_chat_member(
     delete_message_quietly(bot, message.chat.id, message.message_id);
 }
 
-auto VerificationService::handle_group_message(
-    TelegramBotClient &bot,
-    const Message &message
-) -> bool {
-    if (message.chat.type != "group" && message.chat.type != "supergroup") {
-        return false;
-    }
-    if (!message.from.has_value() || message.from->is_bot) {
-        return false;
-    }
-    std::string haystack = message.from->first_name;
-    if (message.from->last_name.has_value()) {
-        haystack += *message.from->last_name;
-    }
-    if (message.from->username.has_value()) {
-        haystack += *message.from->username;
-    }
-    if (message.text.has_value()) {
-        haystack += *message.text;
-    }
-    if (message.caption.has_value()) {
-        haystack += *message.caption;
-    }
-    if (!ProfileScreen::contains_keyword(haystack)) {
-        return false;
-    }
-    if (can_restrict_members(bot, message.chat.id, message.from->id)) {
-        return false;
-    }
-
-    delete_message_quietly(bot, message.chat.id, message.message_id);
-    silent_ban_member(bot, message.chat.id, message.from->id, "scam keyword");
-    return true;
-}
-
 auto VerificationService::handle_callback_query(
     TelegramBotClient &bot,
     const CallbackQuery &query

@@ -371,6 +371,7 @@ auto BilibiliService::download_video(std::string_view source_url) const -> Bilib
 
     std::filesystem::create_directories(download_directory_);
     const auto output_path = download_directory_ / (sanitize_file_name(title, "bilibili-video") + ".mp4");
+    const auto video_temp = output_path;
     const auto video_part = download_directory_ / (output_path.stem().string() + ".video.m4s");
     const auto audio_part = download_directory_ / (output_path.stem().string() + ".audio.m4s");
 
