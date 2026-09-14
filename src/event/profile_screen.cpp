@@ -5,11 +5,13 @@ import telegram.user;
 
 namespace {
 
-constexpr std::array<std::string_view, 30> k_scam_keywords = {
+constexpr std::array<std::string_view, 50> k_scam_keywords = {
     "日结", "日赚", "月入", "刷单", "兼职", "兼職", "网贷", "贷款", "貸款",
     "博彩", "赌博", "賭博", "代开", "发票", "引流", "代理", "高薪", "轻松赚",
     "在家做", "套现", "洗钱", "返利", "投资理财", "棋牌", "办证", "高仿",
-    "约炮", "看片", "USDT", "usdt",
+    "约炮", "看片", "USDT", "usdt", "空投", "撸毛", "薅羊毛", "接码",
+    "卡商", "料子", "担保", "代充", "上分", "下分", "带单", "杀猪盘",
+    "赚", "赌", "贷", "刷", "嫖", "炮", "淫", "毒",
 };
 
 constexpr std::array<std::string_view, 4> k_garbled_markers = {
@@ -169,10 +171,6 @@ auto ProfileScreen::evaluate(const ProfileScreenInput &input) -> ProfileScreenRe
     if (input.user.last_name.has_value() && is_garbled_text(*input.user.last_name)) {
         return ProfileScreenResult{.blocked = true, .reason = "garbled last name"};
     }
-    if (input.user.username.has_value() && is_garbled_text(*input.user.username)) {
-        return ProfileScreenResult{.blocked = true, .reason = "garbled username"};
-    }
-
     if (contains_scam_keyword(display_name)) {
         return ProfileScreenResult{.blocked = true, .reason = "scam keyword in display name"};
     }
