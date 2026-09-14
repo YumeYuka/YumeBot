@@ -3,6 +3,7 @@ export module telegram;
 import std;
 import config;
 import http;
+import telegram.chat;
 import telegram.join;
 import telegram.json;
 import telegram.member;
@@ -81,6 +82,8 @@ public:
     [[nodiscard]] auto answer_callback_query(const AnswerCallbackQueryRequest &request) const -> TelegramResult<bool>;
 
     [[nodiscard]] auto get_updates(const GetUpdatesRequest &request = {}) const -> TelegramResult<std::vector<Update> >;
+
+    [[nodiscard]] auto get_chat(TelegramId chat_id) const -> TelegramResult<Chat>;
 
     [[nodiscard]] auto get_chat_member(const GetChatMemberRequest &request) const -> TelegramResult<ChatMember>;
 

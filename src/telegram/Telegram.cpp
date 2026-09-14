@@ -6,6 +6,7 @@ import config;
 import http;
 import http.response;
 import log;
+import telegram.chat;
 import telegram.join;
 import telegram.json;
 import telegram.member;
@@ -443,6 +444,14 @@ auto TelegramBotClient::get_updates(const GetUpdatesRequest &request) const -> T
         }
         return updates;
     });
+}
+
+auto TelegramBotClient::get_chat(TelegramId chat_id) const -> TelegramResult<Chat> {
+    JsonValue::Object object;
+    json_put(object, "chat_id", chat_id);
+    const auto headers = json_header();
+    const auto http = http_.post(method_url("getChat"), JsonValue::object(std::move(object)).dump(), headers);
+    return envelope_to_result<Chat>(http, [](const JsonValue &json) { return Chat::from_json(json); });
 }
 
 auto TelegramBotClient::get_chat_member(const GetChatMemberRequest &request) const -> TelegramResult<ChatMember> {

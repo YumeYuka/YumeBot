@@ -11,6 +11,7 @@ export struct Chat {
     std::optional<std::string> username{};
     std::optional<std::string> first_name{};
     std::optional<std::string> last_name{};
+    std::optional<std::string> bio{};
 
     static auto from_json(const JsonValue &json) -> Chat {
         Chat chat;
@@ -20,6 +21,7 @@ export struct Chat {
         chat.username = json_string(json, "username");
         chat.first_name = json_string(json, "first_name");
         chat.last_name = json_string(json, "last_name");
+        chat.bio = json_string(json, "bio");
         return chat;
     }
 };

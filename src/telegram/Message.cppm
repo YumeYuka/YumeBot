@@ -49,6 +49,7 @@ export struct Message {
     UnixTime date{};
     Chat chat{};
     std::optional<std::string> text{};
+    std::optional<std::string> caption{};
     std::optional<std::vector<MessageEntity>> entities{};
     std::optional<std::unique_ptr<Message>> reply_to_message{};
     std::optional<WebAppData> web_app_data{};
@@ -67,6 +68,7 @@ export struct Message {
             message.chat = Chat::from_json(*chat);
         }
         message.text = json_string(json, "text");
+        message.caption = json_string(json, "caption");
         if (const auto *entities = json_array(json, "entities")) {
             std::vector<MessageEntity> parsed;
             parsed.reserve(entities->size());

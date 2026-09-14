@@ -17,4 +17,5 @@ export struct ProfileScreenResult {
 export class ProfileScreen {
 public:
     [[nodiscard]] static auto evaluate(const ProfileScreenInput &input) -> ProfileScreenResult;
+    [[nodiscard]] static auto contains_keyword(std::string_view text) -> bool;
 };

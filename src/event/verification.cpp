@@ -214,9 +214,24 @@ auto profile_screen_and_block(
     std::optional<std::string_view> bio,
     bool in_group
 ) -> bool {
+    std::optional<std::string> owned_bio;
+    if (bio.has_value() && !bio->empty()) {
+        owned_bio = std::string{*bio};
+    } else {
+        const auto chat = bot.get_chat(user.id);
+        if (chat.succeeded() && chat.result->bio.has_value() && !chat.result->bio->empty()) {
+            owned_bio = *chat.result->bio;
+        }
+    }
+
+    std::optional<std::string_view> bio_view;
+    if (owned_bio.has_value()) {
+        bio_view = *owned_bio;
+    }
+
     const auto result = ProfileScreen::evaluate(ProfileScreenInput{
         .user = user,
-        .bio = bio,
+        .bio = bio_view,
         .has_avatar = has_user_avatar(bot, user.id),
     });
     if (!result.blocked) {
@@ -446,6 +461,41 @@ auto VerificationService::handle_left_chat_member(
     const Message &message
 ) -> void {
     delete_message_quietly(bot, message.chat.id, message.message_id);
+}
+
+auto VerificationService::handle_group_message(
+    TelegramBotClient &bot,
+    const Message &message
+) -> bool {
+    if (message.chat.type != "group" && message.chat.type != "supergroup") {
+        return false;
+    }
+    if (!message.from.has_value() || message.from->is_bot) {
+        return false;
+    }
+    std::string haystack = message.from->first_name;
+    if (message.from->last_name.has_value()) {
+        haystack += *message.from->last_name;
+    }
+    if (message.from->username.has_value()) {
+        haystack += *message.from->username;
+    }
+    if (message.text.has_value()) {
+        haystack += *message.text;
+    }
+    if (message.caption.has_value()) {
+        haystack += *message.caption;
+    }
+    if (!ProfileScreen::contains_keyword(haystack)) {
+        return false;
+    }
+    if (can_restrict_members(bot, message.chat.id, message.from->id)) {
+        return false;
+    }
+
+    delete_message_quietly(bot, message.chat.id, message.message_id);
+    silent_ban_member(bot, message.chat.id, message.from->id, "scam keyword");
+    return true;
 }
 
 auto VerificationService::handle_callback_query(

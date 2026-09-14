@@ -80,6 +80,10 @@ endif()
 
 add_executable(YumeBot)
 
+if(MSVC)
+    target_compile_options(YumeBot PRIVATE /utf-8)
+endif()
+
 set_property(TARGET YumeBot PROPERTY CXX_MODULE_STD ON)
 
 target_sources(YumeBot

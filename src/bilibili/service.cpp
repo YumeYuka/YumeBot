@@ -157,41 +157,6 @@ namespace {
         }
     }
 
-    constexpr int k_media_download_attempts = 3;
-
-    auto download_media_part(
-        const HttpClient &http,
-        std::string_view url,
-        const std::filesystem::path &output_path,
-        std::span<const std::pair<std::string, std::string>> headers,
-        std::string_view failure_label
-    ) -> void {
-        std::string last_error = std::string{failure_label};
-        for (int attempt = 0; attempt < k_media_download_attempts; ++attempt) {
-            const auto result = http.download(url, output_path, headers);
-            if (!result.ok()) {
-                last_error = result.error.empty() ? std::string{failure_label} : result.error;
-                std::error_code ec;
-                std::filesystem::remove(output_path, ec);
-                continue;
-            }
-            std::error_code ec;
-            const auto size = std::filesystem::file_size(output_path, ec);
-            if (ec || size == 0) {
-                last_error = std::string{failure_label} + "（结果为空）";
-                std::filesystem::remove(output_path, ec);
-                continue;
-            }
-            return;
-        }
-        throw std::runtime_error(last_error);
-    }
-
-    auto remove_path_quiet(const std::filesystem::path &path) -> void {
-        std::error_code ec;
-        std::filesystem::remove(path, ec);
-    }
-
     auto extract_cookie(
         const std::vector<std::pair<std::string, std::string> > &headers,
         std::string_view name
@@ -410,34 +375,14 @@ auto BilibiliService::download_video(std::string_view source_url) const -> Bilib
     const auto audio_part = download_directory_ / (output_path.stem().string() + ".audio.m4s");
 
     const auto media_headers = bilibili_headers(cookie);
-    const bool has_separate_audio = streams.audio_url.has_value();
+    const auto video_download = http_.download(streams.video_url, video_part, media_headers);
+    if (!video_download.ok()) {
+        throw std::runtime_error("B站视频流下载失败");
+    }
 
-    struct PartCleanup {
-        std::filesystem::path video;
-        std::filesystem::path audio;
-        bool audio_active{false};
-        bool released{false};
-
-        ~PartCleanup() {
-            if (released) {
-                return;
-            }
-            remove_path_quiet(video);
-            if (audio_active) {
-                remove_path_quiet(audio);
-            }
-        }
-
-        auto release() -> void {
-            released = true;
-        }
-    } cleanup{.video = video_part, .audio = audio_part, .audio_active = has_separate_audio};
-
-    if (!has_separate_audio) {
-        download_media_part(http_, streams.video_url, video_part, media_headers, "B站视频流下载失败");
+    if (!streams.audio_url.has_value()) {
         run_command("ffmpeg -nostdin -y -loglevel error -i " + shell_quote(video_part.string())
                     + " -map 0:v:0 -map 0:a:0? -c copy -movflags +faststart " + shell_quote(output_path.string()));
-        cleanup.release();
         delete_downloaded_file(video_part);
         return BilibiliDownloadedVideo{
             .title = title,
@@ -448,20 +393,14 @@ auto BilibiliService::download_video(std::string_view source_url) const -> Bilib
         };
     }
 
-    const auto &audio_url = *streams.audio_url;
-    auto video_task = std::async(std::launch::async, [&]() {
-        download_media_part(http_, streams.video_url, video_part, media_headers, "B站视频流下载失败");
-    });
-    auto audio_task = std::async(std::launch::async, [&]() {
-        download_media_part(http_, audio_url, audio_part, media_headers, "B站音频流下载失败");
-    });
-    video_task.get();
-    audio_task.get();
+    const auto audio_download = http_.download(*streams.audio_url, audio_part, media_headers);
+    if (!audio_download.ok()) {
+        throw std::runtime_error("B站音频流下载失败");
+    }
     run_command("ffmpeg -nostdin -y -loglevel error -i " + shell_quote(video_part.string())
                 + " -i " + shell_quote(audio_part.string())
                 + " -map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -b:a 192k -shortest -movflags +faststart "
                 + shell_quote(output_path.string()));
-    cleanup.release();
     delete_downloaded_file(video_part);
     delete_downloaded_file(audio_part);
 
