@@ -179,6 +179,36 @@ auto has_user_avatar(TelegramBotClient &bot, TelegramId user_id) -> bool {
     return photos.result->total_count > 0;
 }
 
+auto preview_text(std::string_view text) -> std::string {
+    constexpr std::size_t k_max = 200;
+    std::string out;
+    out.reserve(std::min(text.size(), k_max));
+    for (const char ch : text) {
+        if (ch == '\n' || ch == '\r' || ch == '\t') {
+            if (!out.empty() && out.back() != ' ') {
+                out.push_back(' ');
+            }
+            continue;
+        }
+        out.push_back(ch);
+        if (out.size() >= k_max) {
+            out += "...";
+            break;
+        }
+    }
+    return out;
+}
+
+auto bio_log_text(std::optional<std::string_view> bio) -> std::string {
+    if (!bio.has_value()) {
+        return "<none>";
+    }
+    if (bio->empty()) {
+        return "<empty>";
+    }
+    return preview_text(*bio);
+}
+
 auto silent_decline_join_request(
     TelegramBotClient &bot,
     TelegramId chat_id,
@@ -207,6 +237,16 @@ auto silent_ban_member(
     Log::Info("Member silently banned: chat={}, user={}, reason={}", chat_id, user_id, reason);
 }
 
+auto silent_decline_and_ban_join_request(
+    TelegramBotClient &bot,
+    TelegramId chat_id,
+    TelegramId user_id,
+    std::string_view reason
+) -> void {
+    silent_decline_join_request(bot, chat_id, user_id, reason);
+    silent_ban_member(bot, chat_id, user_id, reason);
+}
+
 auto profile_screen_and_block(
     TelegramBotClient &bot,
     TelegramId chat_id,
@@ -214,19 +254,24 @@ auto profile_screen_and_block(
     std::optional<std::string_view> bio,
     bool in_group
 ) -> bool {
-    std::optional<std::string> owned_bio;
+    std::optional<std::string_view> bio_view;
     if (bio.has_value() && !bio->empty()) {
-        owned_bio = std::string{*bio};
-    } else {
-        const auto chat = bot.get_chat(user.id);
-        if (chat.succeeded() && chat.result->bio.has_value() && !chat.result->bio->empty()) {
-            owned_bio = *chat.result->bio;
-        }
+        bio_view = *bio;
     }
 
-    std::optional<std::string_view> bio_view;
-    if (owned_bio.has_value()) {
-        bio_view = *owned_bio;
+    if (in_group) {
+        Log::Info(
+            "Open-group profile screen has no bio field: chat={}, user={}",
+            chat_id,
+            user.id
+        );
+    } else if (!bio_view.has_value()) {
+        Log::Info(
+            "Join request bio missing: chat={}, user={}, raw={}",
+            chat_id,
+            user.id,
+            bio_log_text(bio)
+        );
     }
 
     const auto result = ProfileScreen::evaluate(ProfileScreenInput{
@@ -234,13 +279,23 @@ auto profile_screen_and_block(
         .bio = bio_view,
         .has_avatar = has_user_avatar(bot, user.id),
     });
+    Log::Info(
+        "Profile screen: chat={}, user={}, in_group={}, bio={}, haystack={}, blocked={}, reason={}",
+        chat_id,
+        user.id,
+        in_group,
+        bio_log_text(bio),
+        preview_text(result.haystack),
+        result.blocked,
+        result.reason.empty() ? "pass" : result.reason
+    );
     if (!result.blocked) {
         return false;
     }
     if (in_group) {
         silent_ban_member(bot, chat_id, user.id, result.reason);
     } else {
-        silent_decline_join_request(bot, chat_id, user.id, result.reason);
+        silent_decline_and_ban_join_request(bot, chat_id, user.id, result.reason);
     }
     return true;
 }

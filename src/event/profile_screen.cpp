@@ -274,23 +274,44 @@ auto build_keyword_haystack(const ProfileScreenInput &input, std::string_view di
 }  // namespace
 
 auto ProfileScreen::evaluate(const ProfileScreenInput &input) -> ProfileScreenResult {
-    if (!input.has_avatar) {
-        return ProfileScreenResult{.blocked = true, .reason = "missing avatar"};
-    }
-
     const auto display_name = build_display_name(input.user);
+    auto haystack = build_keyword_haystack(input, display_name);
+
+    if (!input.has_avatar) {
+        return ProfileScreenResult{
+            .blocked = true,
+            .reason = "missing avatar",
+            .haystack = std::move(haystack),
+        };
+    }
     if (is_garbled_text(display_name) || is_garbled_text(input.user.first_name)) {
-        return ProfileScreenResult{.blocked = true, .reason = "garbled display name"};
+        return ProfileScreenResult{
+            .blocked = true,
+            .reason = "garbled display name",
+            .haystack = std::move(haystack),
+        };
     }
     if (input.user.last_name.has_value() && is_garbled_text(*input.user.last_name)) {
-        return ProfileScreenResult{.blocked = true, .reason = "garbled last name"};
+        return ProfileScreenResult{
+            .blocked = true,
+            .reason = "garbled last name",
+            .haystack = std::move(haystack),
+        };
     }
     if (input.bio.has_value() && !input.bio->empty() && is_garbled_text(*input.bio)) {
-        return ProfileScreenResult{.blocked = true, .reason = "garbled bio"};
+        return ProfileScreenResult{
+            .blocked = true,
+            .reason = "garbled bio",
+            .haystack = std::move(haystack),
+        };
     }
-    if (contains_scam_keyword(build_keyword_haystack(input, display_name))) {
-        return ProfileScreenResult{.blocked = true, .reason = "scam keyword"};
+    if (contains_scam_keyword(haystack)) {
+        return ProfileScreenResult{
+            .blocked = true,
+            .reason = "scam keyword",
+            .haystack = std::move(haystack),
+        };
     }
 
-    return {};
+    return ProfileScreenResult{.haystack = std::move(haystack)};
 }

@@ -86,9 +86,12 @@ auto log_incoming_update(const Update &update) -> void {
     if (update.chat_join_request.has_value()) {
         const auto &join = *update.chat_join_request;
         Log::Info(
-            "recv chat_join_request chat={} user={}",
+            "recv chat_join_request chat={} user={} bio={}",
             chat_label(join.chat),
-            user_label(join.from)
+            user_label(join.from),
+            join.bio.has_value()
+                ? (join.bio->empty() ? std::string{"<empty>"} : preview_text(*join.bio))
+                : std::string{"<none>"}
         );
         return;
     }

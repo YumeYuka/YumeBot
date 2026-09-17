@@ -12,6 +12,7 @@ export struct ProfileScreenInput {
 export struct ProfileScreenResult {
     bool blocked{false};
     std::string reason{};
+    std::string haystack{};
 };
 
 export class ProfileScreen {
